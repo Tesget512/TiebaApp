@@ -1,0 +1,6 @@
+.tools/
+build/
+DerivedData/
+ThirdParty/SwiftProtobuf/
+*.ipa
+.DS_Store
