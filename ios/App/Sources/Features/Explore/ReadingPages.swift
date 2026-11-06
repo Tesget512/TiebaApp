@@ -413,6 +413,7 @@ struct FollowListView: View {
                         }
                     }
                     .listStyle(.plain)
+                    .refreshable { await load() }
                 }
             }
             .navigationTitle(isFollow ? "关注" : "粉丝")
@@ -525,6 +526,7 @@ struct UserLikeForumListPage: View {
                         }
                     }
                     .listStyle(.plain)
+                    .refreshable { await load() }
                 }
             }
             .navigationTitle("关注的吧")

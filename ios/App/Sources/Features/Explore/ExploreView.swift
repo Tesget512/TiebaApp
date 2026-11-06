@@ -1,50 +1,47 @@
 import SwiftUI
 
-/// 发现页：个性化推荐（对应 Android `PersonalizedPage`）
+/// 发现页（对应 Android `ExplorePage`）：子 Tab 个性化推荐 / 关注动态 / 找人；
+/// toolbar 右上角放大镜 → 全局搜索（Android 顶部 search icon）。
 struct ExploreView: View {
-    @State private var threads: [Tieba_ThreadInfo] = []
-    @State private var isLoading = false
-    @State private var isLoadingMore = false
-    @State private var page = 1
-    @State private var hasMore = true
-    @State private var errorText: String?
+    @State private var subTab: SubTab = .recommend
     @State private var path = NavigationPath()
+
+    enum SubTab: String, CaseIterable, Hashable {
+        case recommend = "推荐"
+        case concern = "关注动态"
+        case findUser = "找人"
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
-            Group {
-                if isLoading && threads.isEmpty {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let err = errorText, threads.isEmpty {
-                    UnavailableView(title: "加载失败", systemImage: "wifi.exclamationmark", description: err)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ThreadListView(threads: threads, isLoadingMore: isLoadingMore) { t in
-                                openThread(t)
-                            } onLoadMore: {
-                                await loadMore()
-                            }
-                        }
-                    }
-                    .refreshable { await load(refresh: true) }
+            VStack(spacing: 0) {
+                Picker("频道", selection: $subTab) {
+                    ForEach(SubTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+
+                switch subTab {
+                case .recommend: RecommendFeedView(path: $path)
+                case .concern: ConcernFeedView(path: $path)
+                case .findUser: FindUserView(path: $path)
                 }
             }
             .navigationTitle("发现")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        path.append(AppRoute.search)
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
                     Menu {
                         Button { path.append(AppRoute.hot) } label: {
                             Label("热榜", systemImage: "flame")
                         }
                         Button { path.append(AppRoute.topicList) } label: {
                             Label("热议话题", systemImage: "flame.fill")
-                        }
-                        Button { path.append(AppRoute.concern) } label: {
-                            Label("关注动态", systemImage: "person.2")
-                        }
-                        Button { path.append(AppRoute.homeFeed) } label: {
-                            Label("进吧", systemImage: "list.bullet.rectangle")
                         }
                         Button { path.append(AppRoute.store) } label: {
                             Label("我的收藏", systemImage: "star")
@@ -57,11 +54,44 @@ struct ExploreView: View {
                     }
                 }
             }
-            .task { if threads.isEmpty { await load(refresh: true) } }
             .navigationDestination(for: AppRoute.self) { route in
                 RouteView(route: route)
             }
         }
+    }
+}
+
+// MARK: - 推荐流（原 ExploreView 的个性化推荐，Android PersonalizedPage）
+
+private struct RecommendFeedView: View {
+    @Binding var path: NavigationPath
+    @State private var threads: [Tieba_ThreadInfo] = []
+    @State private var isLoading = false
+    @State private var isLoadingMore = false
+    @State private var page = 1
+    @State private var hasMore = true
+    @State private var errorText: String?
+
+    var body: some View {
+        Group {
+            if isLoading && threads.isEmpty {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let err = errorText, threads.isEmpty {
+                UnavailableView(title: "加载失败", systemImage: "wifi.exclamationmark", description: err)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ThreadListView(threads: threads, isLoadingMore: isLoadingMore) { t in
+                            openThread(t)
+                        } onLoadMore: {
+                            await loadMore()
+                        }
+                    }
+                }
+                .refreshable { await load(refresh: true) }
+            }
+        }
+        .task { if threads.isEmpty { await load(refresh: true) } }
     }
 
     private func openThread(_ t: Tieba_ThreadInfo) {
@@ -93,7 +123,137 @@ struct ExploreView: View {
     }
 }
 
-/// 统一的路由分发（避免每个页面重复 navigationDestination）
+// MARK: - 关注动态（内嵌，Android ConcernPage）
+
+private struct ConcernFeedView: View {
+    @Binding var path: NavigationPath
+    @State private var threads: [Tieba_ThreadInfo] = []
+    @State private var pageTag = ""
+    @State private var isLoading = false
+    @State private var isLoadingMore = false
+    @State private var errorText: String?
+
+    var body: some View {
+        Group {
+            if isLoading && threads.isEmpty {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let err = errorText, threads.isEmpty {
+                UnavailableView(title: "加载失败", systemImage: "person.2",
+                                description: appStateHint(err))
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ThreadListView(threads: threads, isLoadingMore: isLoadingMore) { t in
+                            path.append(AppRoute.thread(id: t.tid, title: t.title, forumId: t.forumID))
+                        } onLoadMore: {
+                            await loadMore()
+                        }
+                    }
+                }
+                .refreshable { await load() }
+            }
+        }
+        .task { if threads.isEmpty { await load() } }
+    }
+
+    private func appStateHint(_ err: String) -> String {
+        err.contains("logged") || err.contains("登录") ? "需要登录后查看关注动态" : err
+    }
+
+    private func load() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let data = try await TiebaExtraEndpoints.userLike(client: .shared, loadType: 1)
+            threads = data.threadInfo.map(\.threadList)
+            pageTag = data.pageTag
+            errorText = nil
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func loadMore() async {
+        guard !isLoadingMore, !pageTag.isEmpty else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            let data = try await TiebaExtraEndpoints.userLike(client: .shared,
+                                                              pageTag: pageTag, loadType: 2)
+            threads += data.threadInfo.map(\.threadList)
+            pageTag = data.pageTag
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - 找人（Android SearchUserTabPage：UID 直达个人主页）
+
+private struct FindUserView: View {
+    @Binding var path: NavigationPath
+    @State private var input = ""
+    @State private var searching = false
+    @State private var result: Tieba_Profile_ProfileResponseData?
+    @State private var errorText: String?
+
+    var body: some View {
+        Form {
+            Section("通过 UID 找人") {
+                TextField("输入用户 UID（纯数字）", text: $input)
+                    .keyboardType(.numberPad)
+                Button {
+                    Task { await search() }
+                } label: {
+                    if searching {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Text("查找").frame(maxWidth: .infinity)
+                    }
+                }
+                .disabled(Int64(input) == nil || searching)
+            }
+            if let err = errorText {
+                Section { Text(err).font(.footnote).foregroundStyle(.secondary) }
+            }
+            if let r = result {
+                Section("结果") {
+                    NavigationLink(value: AppRoute.user(uid: uid)) {
+                        HStack(spacing: 12) {
+                            AvatarView(url: Tieba_ThreadInfo.portraitURL(r.user.portrait), size: 44)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(r.user.nameShow.isEmpty ? r.user.name : r.user.nameShow)
+                                    .font(.subheadline.weight(.medium))
+                                if !r.user.intro.isEmpty {
+                                    Text(r.user.intro).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
+    }
+
+    private var uid: Int64 { Int64(input) ?? 0 }
+
+    private func search() async {
+        searching = true
+        result = nil
+        errorText = nil
+        defer { searching = false }
+        do {
+            result = try await TiebaEndpoints.userProfile(
+                client: .shared, uid: uid, selfUid: 0, isSelf: false)
+        } catch {
+            errorText = "未找到该用户：\(error.localizedDescription)"
+        }
+    }
+}
+
+// MARK: - 统一路由分发（避免每个页面重复 navigationDestination）
+
 struct RouteView: View {
     let route: AppRoute
 
@@ -127,6 +287,8 @@ struct RouteView: View {
             PostAnalysisPage(uid: uid, name: name)
         case .photoView(let urls, let index):
             PhotoViewPage(urls: urls, initialIndex: index)
+        case .search:
+            SearchPage()
         }
     }
 }

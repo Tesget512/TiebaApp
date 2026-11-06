@@ -153,6 +153,50 @@ final class TiebaJSONClient {
         }
     }
 
+    /// hybrid Web GET 通用请求（对应 Android `AppHybridTiebaApi` 的三个搜索接口：
+    /// NO_ST_PARAMS + NO_COMMON_PARAMS(BDUSS/STOKEN)，带 Referer 头）
+    func webGet(path: String, query: [String: String],
+                referer: String? = nil) async throws -> Data {
+        var comps = URLComponents(string: "https://tieba.baidu.com\(path)")!
+        comps.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        var req = URLRequest(url: comps.url!)
+        req.httpMethod = "GET"
+        req.setValue("tieba/12.35.1.0 skin/default", forHTTPHeaderField: "User-Agent")
+        req.setValue("com.baidu.tieba", forHTTPHeaderField: "X-Requested-With")
+        if let referer {
+            req.setValue(referer, forHTTPHeaderField: "Referer")
+        }
+        let (data, response) = try await session.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw TiebaAPIError.httpStatus(http.statusCode)
+        }
+        return data
+    }
+
+    /// 搜吧 `GET /mo/q/search/forum?word=`（对应 Android searchForumFlow）
+    func searchForum(keyword: String) async throws -> WebSearchForumResponse {
+        let data = try await webGet(path: "/mo/q/search/forum", query: ["word": keyword],
+                                    referer: "https://tieba.baidu.com/mo/q/hybrid/search?keyword=\(keyword)")
+        return try TiebaJSONClient.decode(WebSearchForumResponse.self, from: data)
+    }
+
+    /// 搜用户 `GET /mo/q/search/user?word=`（对应 Android searchUserFlow）
+    func searchUser(keyword: String) async throws -> WebSearchUserResponse {
+        let data = try await webGet(path: "/mo/q/search/user", query: ["word": keyword],
+                                    referer: "https://tieba.baidu.com/mo/q/hybrid/search?keyword=\(keyword)")
+        return try TiebaJSONClient.decode(WebSearchUserResponse.self, from: data)
+    }
+
+    /// 搜帖子 `GET /mo/q/search/thread?word=&pn=&st=...`（对应 Android searchThreadFlow）
+    func searchThread(keyword: String, page: Int, sort: Int = 0) async throws -> WebSearchThreadResponse {
+        let data = try await webGet(
+            path: "/mo/q/search/thread",
+            query: ["word": keyword, "pn": "\(page)", "st": "\(sort)", "tt": "1",
+                    "ct": "1", "is_use_zonghe": "1", "cv": "99.9.101"],
+            referer: "https://tieba.baidu.com/mo/q/hybrid/search?keyword=\(keyword)")
+        return try TiebaJSONClient.decode(WebSearchThreadResponse.self, from: data)
+    }
+
     /// 热议话题详情 `GET /mo/q/newtopic/topicDetail`（HYBRID 通道 https://tieba.baidu.com）
     /// 对应 Android `AppHybridTiebaApi.topicDetail`（query：topic_id/topic_name/is_new=1/
     /// is_share=1/pn/rn=10/offset/last_id/derivative_to_pic_id=""）
@@ -245,4 +289,95 @@ struct FlexibleString: Decodable {
         else if let d = try? c.decode(Double.self) { value = "\(Int(d))" }
         else { value = "" }
     }
+}
+
+// MARK: - hybrid 搜索响应模型（对应 Android SearchForumBean / SearchUserBean / SearchThreadBean）
+
+/// 搜吧：`{no, error, data:{has_more, pn, fuzzy_match:[forum], exact_match:forum}}`
+struct WebSearchForumResponse: Decodable {
+    struct Forum: Decodable {
+        let forum_id: FlexibleInt?
+        let forum_name: String?
+        let forum_name_show: String?
+        let avatar: String?
+        let post_num: FlexibleString?
+        let concern_num: FlexibleString?
+        let has_concerned: FlexibleInt?
+        let intro: String?
+        let slogan: String?
+    }
+    struct Data: Decodable {
+        let has_more: FlexibleInt?
+        let pn: FlexibleInt?
+        let fuzzy_match: [Forum]?
+        let exact_match: Forum?
+    }
+    let no: FlexibleInt?
+    let error: String?
+    let data: Data?
+
+    var forums: [Forum] {
+        var list = data?.fuzzy_match ?? []
+        if let exact = data?.exact_match {
+            list.insert(exact, at: 0)
+        }
+        return list
+    }
+}
+
+/// 搜用户：`{no, error, data:{exact_match:User, fuzzy_match:[User]}}`
+struct WebSearchUserResponse: Decodable {
+    struct User: Decodable {
+        let id: FlexibleString?
+        let name: String?
+        let user_nickname: String?
+        let show_nickname: String?
+        let portrait: String?
+        let fans_num: FlexibleString?
+        let intro: String?
+    }
+    struct Data: Decodable {
+        let exact_match: User?
+        let fuzzy_match: [User]?
+    }
+    let no: FlexibleInt?
+    let error: String?
+    let data: Data?
+
+    var users: [User] {
+        var list = data?.fuzzy_match ?? []
+        if let exact = data?.exact_match {
+            list.insert(exact, at: 0)
+        }
+        return list
+    }
+}
+
+/// 搜帖子：`{no, error, data:{has_more, current_page, post_list:[thread]}}`
+struct WebSearchThreadResponse: Decodable {
+    struct Thread: Decodable {
+        let tid: FlexibleString?
+        let pid: FlexibleString?
+        let title: String?
+        let content: String?
+        let time: FlexibleString?
+        let post_num: FlexibleString?
+        let like_num: FlexibleString?
+        let forum_id: FlexibleString?
+        let forum_name: String?
+        struct User: Decodable {
+            let id: FlexibleString?
+            let name: String?
+            let portrait: String?
+        }
+        let user: User?
+    }
+    struct Data: Decodable {
+        let has_more: FlexibleInt?
+        let current_page: FlexibleInt?
+        let post_list: [Thread]?
+    }
+    let no: FlexibleInt?
+    let error: String?
+    let data: Data?
 }

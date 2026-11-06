@@ -39,6 +39,12 @@ struct HotPage: View {
                                         }
                                     }
                                     Spacer()
+                                    // 封面固定右侧（对齐 Android 热榜卡片）
+                                    if let cover = t.mediaURLs.first ?? t.videoThumbnailURL {
+                                        RemoteImage(url: cover)
+                                            .frame(width: 84, height: 56)
+                                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    }
                                 }
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 10)
@@ -141,10 +147,11 @@ struct ConcernPage: View {
     }
 }
 
-// MARK: - 进吧页（对应 Android `HomePage`：forumrecommend?cmd=303011 + gethistoryforum）
+// MARK: - 进吧页（对应 Android `HomePage`：关注吧 + 浏览过的吧 + 推荐）
 
 struct HomeFeedPage: View {
-    @State private var forums: [Tieba_ForumRecommend_LikeForum] = []
+    @State private var likeForums: [Tieba_ForumRecommend_LikeForum] = []
+    @State private var historyForums: [Tieba_HistoryForumInfo] = []
     @State private var isLoading = false
     @State private var errorText: String?
     @State private var path = NavigationPath()
@@ -152,15 +159,42 @@ struct HomeFeedPage: View {
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if isLoading && forums.isEmpty {
+                if isLoading && likeForums.isEmpty && historyForums.isEmpty {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let err = errorText, forums.isEmpty {
+                } else if let err = errorText, likeForums.isEmpty && historyForums.isEmpty {
                     UnavailableView(title: "加载失败", systemImage: "list.bullet.rectangle",
                                     description: err)
                 } else {
                     List {
+                        if !historyForums.isEmpty {
+                            Section("浏览过的吧") {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 14) {
+                                        ForEach(historyForums, id: \.forumID) { f in
+                                            NavigationLink(value: AppRoute.forum(f.forumName)) {
+                                                VStack(spacing: 6) {
+                                                    RemoteImage(url: URL(string: f.avatar))
+                                                        .frame(width: 56, height: 56)
+                                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                                    Text(f.forumName)
+                                                        .font(.caption2)
+                                                        .lineLimit(1)
+                                                        .frame(width: 60)
+                                                }
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    .padding(.vertical, 4)
+                                }
+                            }
+                        }
                         Section("关注的吧") {
-                            ForEach(forums, id: \.forumID) { f in
+                            if likeForums.isEmpty {
+                                Text("暂无关注的吧，去搜索页发现感兴趣的贴吧吧")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                            ForEach(likeForums, id: \.forumID) { f in
                                 NavigationLink(value: AppRoute.forum(f.forumName)) {
                                     HStack(spacing: 12) {
                                         RemoteImage(url: URL(string: f.avatar))
@@ -197,7 +231,14 @@ struct HomeFeedPage: View {
                 }
             }
             .navigationTitle("进吧")
-            .task { if forums.isEmpty { await load() } }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: AppRoute.search) {
+                        Image(systemName: "magnifyingglass")
+                    }
+                }
+            }
+            .task { if likeForums.isEmpty { await load() } }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         }
     }
@@ -205,12 +246,18 @@ struct HomeFeedPage: View {
     private func load() async {
         isLoading = true
         defer { isLoading = false }
+        // 浏览过的吧（需登录，未登录时静默为空）
+        if let hist = try? await TiebaExtraEndpoints.historyForum(client: .shared) {
+            historyForums = hist.historyForum
+        }
+        // 关注吧（签名通道）
         do {
             let data = try await TiebaExtraEndpoints.forumRecommend(client: .shared)
-            forums = data.likeForum
-            errorText = nil
+            likeForums = data.likeForum
+            errorText = likeForums.isEmpty && historyForums.isEmpty
+                ? "登录后可查看关注的吧（当前未登录）" : nil
         } catch {
-            errorText = error.localizedDescription
+            if historyForums.isEmpty { errorText = error.localizedDescription }
         }
     }
 }
@@ -417,6 +464,7 @@ struct UserPostListPage: View {
                         }
                     }
                     .listStyle(.insetGrouped)
+                    .refreshable { await load() }
                 }
             }
             .navigationTitle(isThread ? "\(name)的主题贴" : "\(name)的回复")

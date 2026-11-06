@@ -122,6 +122,9 @@ struct ThreadPage: View {
     @State private var photoIndex = 0
     @State private var showReport = false
     @State private var reportURL: URL?
+    @State private var sortDesc = false
+    @State private var showJumpPage = false
+    @State private var jumpPageInput = ""
     @State private var selectedPollOptions: Set<UInt64> = []
     @State private var pollVoted = false
     /// 主题贴的投票信息（PbPage 响应的 thread.poll_info）
@@ -153,6 +156,18 @@ struct ThreadPage: View {
                         } label: {
                             Label(seeLz ? "看全部" : "只看楼主",
                                   systemImage: seeLz ? "person.3" : "person.crop.circle")
+                        }
+                        Button {
+                            sortDesc.toggle()
+                            Task { await reload() }
+                        } label: {
+                            Label(sortDesc ? "切回正序" : "倒序查看",
+                                  systemImage: sortDesc ? "arrow.up" : "arrow.down")
+                        }
+                        Button {
+                            showJumpPage = true
+                        } label: {
+                            Label("跳页", systemImage: "arrow.right.to.line")
                         }
                         Button {
                             Task { await toggleStore() }
@@ -204,6 +219,17 @@ struct ThreadPage: View {
                 if let reportURL {
                     NavigationStack { WebViewPage(url: reportURL) }
                 }
+            }
+            .alert("跳页", isPresented: $showJumpPage) {
+                TextField("页码（1 起）", text: $jumpPageInput)
+                    .keyboardType(.numberPad)
+                Button("跳转") {
+                    guard let target = Int(jumpPageInput), target > 0 else { return }
+                    jumpToPage(target - 1)  // pbPage 的 pn 从 0 计
+                }
+                Button("取消", role: .cancel) { }
+            } message: {
+                Text("当前第 \(max(1, nextPage + 1)) 页")
             }
             .sheet(isPresented: $showReply) {
                 ReplySheet(threadId: threadID, forumId: resolvedForumId,
@@ -413,6 +439,25 @@ struct ThreadPage: View {
         }
     }
 
+    /// 跳页（对应 Android jumpToPage：直接请求指定 pn 的楼层）
+    private func jumpToPage(_ pn: Int) {
+        Task {
+            isLoading = true
+            defer { isLoading = false }
+            do {
+                let data = try await TiebaEndpoints.pbPage(
+                    client: .shared, threadId: threadID, page: pn, rn: 15,
+                    forumId: resolvedForumId, seeLz: seeLz, sortType: sortDesc ? 1 : 0)
+                posts = data.postList
+                nextPage = Int(data.page.currentPage)
+                hasMore = data.page.hasMore_p != 0
+                errorText = nil
+            } catch {
+                errorText = error.localizedDescription
+            }
+        }
+    }
+
     private func reload() async {
         isLoading = true
         nextPage = 0
@@ -422,7 +467,7 @@ struct ThreadPage: View {
             // Android 首页固定 pn=0
             let data = try await TiebaEndpoints.pbPage(
                 client: .shared, threadId: threadID, page: 0, rn: 15,
-                forumId: resolvedForumId, seeLz: seeLz)
+                forumId: resolvedForumId, seeLz: seeLz, sortType: sortDesc ? 1 : 0)
             posts = data.postList
             forumName = data.forum.name
             if resolvedForumId == 0 {
@@ -449,7 +494,7 @@ struct ThreadPage: View {
         do {
             let data = try await TiebaEndpoints.pbPage(
                 client: .shared, threadId: threadID, page: nextPage, rn: 15,
-                forumId: resolvedForumId, seeLz: seeLz)
+                forumId: resolvedForumId, seeLz: seeLz, sortType: sortDesc ? 1 : 0)
             posts += data.postList
             nextPage = Int(data.page.currentPage)
             hasMore = data.page.hasMore_p != 0

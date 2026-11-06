@@ -19,4 +19,5 @@ enum AppRoute: Hashable {
     case forumDetail(id: Int64, name: String)                // 吧详情
     case analysis(uid: Int64, name: String)                  // 发言分析
     case photoView(urls: [String], index: Int)               // 图片查看器
+    case search                                              // 全局搜索（发现页 toolbar 进入）
 }

@@ -193,4 +193,42 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(decoded.error.errorCode, 340006)
         XCTAssertEqual(TiebaAPIError.message(from: decoded.error), "未知错误")
     }
+
+    // MARK: - 登录持久化（App 重启不丢登录）
+
+    /// AccountStore 写入后必须能读回（模拟 App 重启后的 keychain/兜底读取）。
+    /// 若此测试失败，说明登录持久化有 bug（用户验收曾报告重启丢登录）。
+    func testAccountStoreRoundtrip() {
+        let store = AccountStore()
+        let acc = Account(uid: "99991", name: "验收测试", portrait: "", bduss: "TEST_BDUSS",
+                          stoken: "ST", tbs: "TBS", zid: "", cookie: "BDUSS=TEST_BDUSS")
+        store.save(acc)
+        // 新实例 = 模拟重启后的全新读取
+        let reloaded = AccountStore().load()
+        XCTAssertNotNil(reloaded, "保存后读回应非 nil（keychain 或兜底必须有一个生效）")
+        XCTAssertEqual(reloaded?.uid, "99991")
+        XCTAssertEqual(reloaded?.bduss, "TEST_BDUSS")
+        XCTAssertEqual(reloaded?.tbs, "TBS")
+        // 清理测试数据
+        store.remove(uid: "99991")
+        XCTAssertNil(AccountStore().all().first { $0.uid == "99991" })
+    }
+
+    /// 多账号切换持久化
+    func testAccountStoreMultiAccount() {
+        let store = AccountStore()
+        let a = Account(uid: "80001", name: "A", portrait: "", bduss: "BA", stoken: "S",
+                        tbs: "", zid: "", cookie: "")
+        let b = Account(uid: "80002", name: "B", portrait: "", bduss: "BB", stoken: "S",
+                        tbs: "", zid: "", cookie: "")
+        store.save(a)
+        store.save(b)
+        XCTAssertEqual(store.all().count, 2)
+        store.setCurrent(uid: "80001")
+        XCTAssertEqual(AccountStore().load()?.uid, "80001")
+        store.remove(uid: "80001")
+        XCTAssertEqual(AccountStore().load()?.uid, "80002", "移除当前账号后应自动切到剩余账号")
+        store.remove(uid: "80002")
+        XCTAssertNil(AccountStore().load())
+    }
 }

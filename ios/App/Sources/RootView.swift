@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// 根视图：底部 Tab（发现/搜索/通知/我的），未登录可用（读接口无需登录）。
+/// 根视图：底部 Tab（发现/进吧/通知/我的）——对齐 Android `MainPage` 的 4 Tab 结构。
+/// 搜索是发现页 toolbar 的放大镜入口（Android ExplorePage 顶部 search icon）。
 struct RootView: View {
     @EnvironmentObject var appState: AppState
     @State private var selectedTab = 0
@@ -11,11 +12,9 @@ struct RootView: View {
                 .tabItem { Label("发现", systemImage: "safari") }
                 .tag(0)
 
-            NavigationStack {
-                SearchPage()
-            }
-            .tabItem { Label("搜索", systemImage: "magnifyingglass") }
-            .tag(1)
+            HomeFeedPage()
+                .tabItem { Label("进吧", systemImage: "square.grid.2x2") }
+                .tag(1)
 
             NotificationsView()
                 .tabItem { Label("通知", systemImage: "bell") }
@@ -32,9 +31,4 @@ struct RootView: View {
             await NotifyScheduler.pollOnce()
         }
     }
-}
-
-#Preview {
-    RootView()
-        .environmentObject(AppState())
 }

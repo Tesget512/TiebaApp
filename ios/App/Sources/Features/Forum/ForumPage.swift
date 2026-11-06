@@ -100,6 +100,23 @@ struct ForumPage: View {
             ReplySheet(threadId: 0, forumId: forum?.id ?? 0, forumName: forumName,
                        threadTitle: "")
         }
+        .overlay(alignment: .bottomTrailing) {
+            // FAB（对应 Android forumFabFunction 默认 post）
+            if appState.isLoggedIn {
+                Button {
+                    showNewPost = true
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.title3)
+                        .foregroundStyle(.white)
+                        .frame(width: 52, height: 52)
+                        .background(Color.blue, in: Circle())
+                        .shadow(radius: 4, y: 2)
+                }
+                .padding(.trailing, 20)
+                .padding(.bottom, 24)
+            }
+        }
         .overlay(alignment: .bottom) {
             if let toast {
                 Text(toast)
