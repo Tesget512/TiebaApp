@@ -84,7 +84,7 @@ struct FeedCard: View {
 
     @ViewBuilder
     private var content: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 if thread.isNoTitle != 1 && !thread.title.isEmpty {
                     Text((thread.isGood == 1 ? "[精] " : "") + thread.title)
@@ -111,20 +111,37 @@ struct FeedCard: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            if let thumb = thread.mediaURLs.first {
-                RemoteImage(url: thumb)
-                    .frame(width: 108, height: 72)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else if let vThumb = thread.videoThumbnailURL {
-                RemoteImage(url: vThumb)
-                    .frame(width: 108, height: 72)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay {
-                        Image(systemName: "play.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.white)
-                    }
+            // 封面固定在卡片右侧（Spacer 撑开，无论文字长短都贴右边缘）
+            Spacer(minLength: 8)
+            coverView
+        }
+    }
+
+    /// 右侧封面：多图成排（≤3 张，84x56）；单图 108x72；视频用封面图
+    @ViewBuilder
+    private var coverView: some View {
+        let urls = thread.mediaURLs
+        if urls.count > 1 {
+            HStack(spacing: 4) {
+                ForEach(Array(urls.prefix(3).enumerated()), id: \.offset) { _, u in
+                    RemoteImage(url: u)
+                        .frame(width: 84, height: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
             }
+        } else if let single = urls.first {
+            RemoteImage(url: single)
+                .frame(width: 108, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        } else if let vThumb = thread.videoThumbnailURL {
+            RemoteImage(url: vThumb)
+                .frame(width: 108, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    Image(systemName: "play.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.white)
+                }
         }
     }
 

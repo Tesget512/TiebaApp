@@ -6,23 +6,28 @@ enum TiebaLoginClient {
 
     private static let session = URLSession.shared
 
-    /// 用 BDUSS/STOKEN 换账号信息（Android `AccountUtil.fetchAccountFlow` 的 /c/s/login 步骤）
+    /// 用 BDUSS/STOKEN 换账号信息（Android `OfficialTiebaApi.loginFlow` 1:1 对齐）
     static func fetchAccount(bduss: String, stoken: String) async throws -> Account {
+        // Android 字面量：bdusstoken = "${BDUSS}|null"（竖线后是字面量 null，不是 stoken！）
+        // 参数集 = defaultCommonParamInterceptor（drop BDUSS）+ login 专属字段
         var params: [String: String] = [
             "_client_id": ClientUtils.clientId,
             "_client_type": "2",
             "_client_version": ClientVersion.v12.rawValue,
+            "_os_version": "16.0",
             "_phone_imei": "000000000000000",
-            // Android: bdusstoken = "$bduss|"（BDUSS + 竖线 + STOKEN）
-            "bdusstoken": "\(bduss)|\(stoken)",
+            "bdusstoken": "\(bduss)|null",
             "channel_id": "",
             "channel_uid": "",
             "from": "tieba",
             "model": DeviceIdentity.shared.deviceModel,
             "net_type": "1",
             "timestamp": String(Int64(Date().timeIntervalSince1970 * 1000)),
+            "authsid": "null",
+            "user_id": "",
         ]
-        if !stoken.isEmpty { params["stoken"] = stoken }
+        // Android: @Field("stoken") sToken = AccountUtil.getSToken()!!（登录前为空串）
+        params["stoken"] = stoken
         params = Signer.signFormParams(params)
 
         guard let url = URL(string: "http://c.tieba.baidu.com/c/s/login") else {
