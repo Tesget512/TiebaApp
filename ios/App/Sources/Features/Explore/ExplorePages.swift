@@ -26,10 +26,15 @@ struct HotPage: View {
                                         .foregroundStyle(idx < 3 ? Color.red : Color.secondary)
                                         .frame(width: 24)
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(t.title.isEmpty ? t.abstractText : t.title)
-                                            .font(.subheadline)
-                                            .lineLimit(2)
-                                            .multilineTextAlignment(.leading)
+                                        if t.title.isEmpty {
+                                            EmoticonText(text: t.abstractText, font: .subheadline,
+                                                         pointSize: 15, color: .primary, lineLimit: 2)
+                                        } else {
+                                            Text(t.title)
+                                                .font(.subheadline)
+                                                .lineLimit(2)
+                                                .multilineTextAlignment(.leading)
+                                        }
                                         HStack(spacing: 8) {
                                             if !t.forumName.isEmpty {
                                                 Text(t.forumName).font(.caption2).foregroundStyle(.blue)

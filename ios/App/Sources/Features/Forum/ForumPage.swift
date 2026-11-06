@@ -52,6 +52,14 @@ struct ForumPage: View {
                     }
                 }
                 Menu {
+                    if tab == .latest {
+                        // Android 最新 tab 子菜单：按回复时间/按发帖时间排序
+                        Picker("排序方式", selection: $latestSort) {
+                            Text("按回复时间").tag(0)
+                            Text("按发帖时间").tag(1)
+                        }
+                        .onChange(of: latestSort) { _ in Task { await reload() } }
+                    }
                     if let forum {
                         Button {
                             forumDetailRoute = true

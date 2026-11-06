@@ -35,13 +35,23 @@ extension Tieba_ThreadInfo {
         return fmt.localizedString(for: date, relativeTo: Date())
     }
 
-    /// 摘要：`richAbstract` 里 type 0/9/27/35/40 的文本（Android `abstractText` 逻辑）
+    /// 摘要（Android `ThreadInfo.abstractText` 1:1）：type 0/40 纯文本（多空格压缩）、
+    /// 9/27/35 同文本、type 2 = 表情段（text=id, c=名字 → 动态注册 + `#(名字)`）
     var abstractText: String {
-        richAbstract.filter { [0, 9, 27, 35, 40].contains(Int($0.type)) }
-            .map(\.text)
-            .joined(separator: " ")
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        richAbstract.compactMap { item -> String? in
+            switch Int(item.type) {
+            case 0, 40:
+                return item.text.replacingOccurrences(
+                    of: #" {2,}"#, with: " ", options: .regularExpression)
+            case 2:
+                EmoticonManager.shared.register(id: item.text, name: item.c)
+                return "#(\(item.c))"
+            default:
+                return nil
+            }
+        }
+        .joined()
+        .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// 缩略图列表（最多 3 张，对应 FeedCard ThreadMedia）
@@ -60,6 +70,9 @@ extension Tieba_ThreadInfo {
 
     /// 是否是投票帖（poll_info 存在且 options 非空即视为投票帖）
     var isPoll: Bool { hasPollInfo && !pollInfo.options.isEmpty }
+
+    /// 是否视频帖（「不看视频贴」开关用）
+    var isVideo: Bool { !videoInfo.thumbnailURL.isEmpty }
 
     /// 是否直播帖（Android 列表过滤用）
     var isLive: Bool { alaInfo.liveID != 0 }

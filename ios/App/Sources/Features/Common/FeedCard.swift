@@ -35,6 +35,7 @@ struct AvatarView: View {
 /// 帖子卡片：三段式（header / content / action），对应 Android FeedCard
 struct FeedCard: View {
     let thread: Tieba_ThreadInfo
+    @ObservedObject private var prefs = AppPreferences.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -94,11 +95,9 @@ struct FeedCard: View {
                         .multilineTextAlignment(.leading)
                 }
                 if !thread.abstractText.isEmpty {
-                    Text(thread.abstractText)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                        .multilineTextAlignment(.leading)
+                    // Android FeedCard：abstractText.emoticonString（内联表情）
+                    EmoticonText(text: thread.abstractText, font: .subheadline,
+                                 pointSize: 15, color: .secondary, lineLimit: 3)
                 }
                 if thread.isPoll {
                     Label("投票", systemImage: "chart.bar")
@@ -118,8 +117,18 @@ struct FeedCard: View {
     }
 
     /// 右侧封面：多图成排（≤3 张，84x56）；单图 108x72；视频用封面图
+    /// 「隐藏媒体」开关开启时不渲染（Android 收起贴子列表的图片和视频）
     @ViewBuilder
     private var coverView: some View {
+        if prefs.hideMedia {
+            EmptyView()
+        } else {
+            coverImage
+        }
+    }
+
+    @ViewBuilder
+    private var coverImage: some View {
         let urls = thread.mediaURLs
         if urls.count > 1 {
             HStack(spacing: 4) {
@@ -170,13 +179,20 @@ struct ThreadListView: View {
     @ObservedObject private var blocker = BlockManager.shared
 
     /// 应用屏蔽（对应 Android ThreadInfo.shouldBlock + hideBlockedContent）
+    /// + 屏蔽视频帖开关（Android 不看视频贴）
     private var visibleThreads: [Tieba_ThreadInfo] {
-        guard !blocker.blocks.isEmpty else { return threads }
-        let filtered = threads.filter { t in
-            !blocker.shouldBlockThread(title: t.title, abstract: t.abstractText,
-                                       authorId: t.author.id, authorName: t.author.name)
+        var list = threads
+        if prefs.blockVideo {
+            list = list.filter { !$0.isVideo }
         }
-        return prefs.hideBlockedContent ? filtered : threads
+        if !blocker.blocks.isEmpty {
+            let filtered = list.filter { t in
+                !blocker.shouldBlockThread(title: t.title, abstract: t.abstractText,
+                                           authorId: t.author.id, authorName: t.author.name)
+            }
+            list = prefs.hideBlockedContent ? filtered : list
+        }
+        return list
     }
 
     var body: some View {

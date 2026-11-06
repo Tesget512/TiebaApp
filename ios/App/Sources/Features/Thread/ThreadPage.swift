@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import PhotosUI
+import AVKit
 
 /// PbContent 富文本渲染（对应 Android PbContentRender 的 iOS 版）：
 /// type 0/9/27/35/40=文字、1=链接、2=表情、3/20=图片、4=@用户、5=视频、10=语音
@@ -12,7 +13,9 @@ struct PbContentView: View {
         case text(String)
         case image(url: URL?, aspect: CGFloat)
         case link(String)
-        case video
+        /// 有直链 → 内联播放；无直链 → 网页打开（Android VideoContentRender 两种分支）
+        case video(url: URL?, poster: URL?, aspect: CGFloat)
+        case videoWeb(url: URL?)
         case voice(Int32)
     }
 
@@ -33,7 +36,9 @@ struct PbContentView: View {
                 flush()
                 result.append(.link(c.text.isEmpty ? c.link : c.text))
             case 2:
-                textBuffer += "[\(c.c)]"
+                // Android：registerEmoticon(text, c) 后渲染 `#(c)`（text=id, c=名字）
+                EmoticonManager.shared.register(id: c.text, name: c.c)
+                textBuffer += "#(\(c.c))"
             case 3, 20:
                 flush()
                 result.append(.image(url: Self.picURL(c), aspect: Self.aspect(c)))
@@ -41,7 +46,14 @@ struct PbContentView: View {
                 textBuffer += "@\(c.text) "
             case 5:
                 flush()
-                result.append(.video)
+                if c.link.isEmpty {
+                    // 无直链：text 为网页地址（Android 跳网页分支）
+                    result.append(.videoWeb(url: c.text.isEmpty ? nil : URL(string: c.text)))
+                } else {
+                    result.append(.video(url: URL(string: c.link),
+                                         poster: c.src.isEmpty ? nil : URL(string: c.src),
+                                         aspect: Self.aspect(c)))
+                }
             case 10:
                 flush()
                 result.append(.voice(Int32(c.duringTime)))
@@ -58,8 +70,8 @@ struct PbContentView: View {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 switch item {
                 case .text(let t):
-                    Text(t).font(fontSize).foregroundStyle(.primary)
-                        .multilineTextAlignment(.leading)
+                    EmoticonText(text: t, font: fontSize, pointSize: fontSizePointSize,
+                                 color: .primary)
                 case .image(let url, let aspect):
                     RemoteImage(url: url, contentMode: .fit)
                         .frame(maxWidth: .infinity)
@@ -67,9 +79,18 @@ struct PbContentView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 case .link(let text):
                     Text(text).font(fontSize).foregroundStyle(.blue)
-                case .video:
-                    Label("视频内容", systemImage: "play.rectangle")
-                        .font(fontSize).foregroundStyle(.secondary)
+                case .video(let url, let poster, let aspect):
+                    InlineVideoPlayer(videoURL: url, posterURL: poster, aspect: aspect)
+                case .videoWeb(let url):
+                    if let url {
+                        Link(destination: url) {
+                            Label("在浏览器中观看视频", systemImage: "play.rectangle")
+                                .font(fontSize)
+                        }
+                    } else {
+                        Label("视频内容", systemImage: "play.rectangle")
+                            .font(fontSize).foregroundStyle(.secondary)
+                    }
                 case .voice(let sec):
                     Label("语音 \(sec)″", systemImage: "waveform")
                         .font(fontSize).foregroundStyle(.secondary)
@@ -92,6 +113,57 @@ struct PbContentView: View {
               let w = Double(parts[0]), w > 0,
               let h = Double(parts[1]), h > 0 else { return 4.0 / 3.0 }
         return CGFloat(w / h)
+    }
+
+    /// SwiftUI Font → 近似点值（EmoticonText 行内图缩放用）
+    var fontSizePointSize: CGFloat {
+        if fontSize == .caption2 || fontSize == .caption { return 12 }
+        if fontSize == .footnote { return 13 }
+        if fontSize == .subheadline { return 15 }
+        if fontSize == .callout { return 16 }
+        if fontSize == .title3 || fontSize == .headline { return 20 }
+        if fontSize == .title2 { return 22 }
+        if fontSize == .title { return 28 }
+        return 17 // .body 及其他
+    }
+}
+
+/// 内联视频播放（对应 Android VideoPlayer widget：封面图 + 点击播放 → AVKit）
+struct InlineVideoPlayer: View {
+    let videoURL: URL?
+    let posterURL: URL?
+    var aspect: CGFloat = 16.0 / 9.0
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        ZStack {
+            if let player {
+                VideoPlayer(player: player)
+                    .aspectRatio(aspect, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .onDisappear { player.pause() }
+            } else {
+                ZStack {
+                    RemoteImage(url: posterURL, contentMode: .fit)
+                        .aspectRatio(aspect, contentMode: .fit)
+                        .background(Color.black.opacity(0.85))
+                    if videoURL != nil {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 46))
+                            .foregroundStyle(.white)
+                            .shadow(radius: 4)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard let videoURL else { return }
+                    let p = AVPlayer(url: videoURL)
+                    player = p
+                    p.play()
+                }
+            }
+        }
     }
 }
 
@@ -691,8 +763,10 @@ struct FloorDetailPage: View {
             }
             PbContentView(contents: sub.content, fontSize: .footnote)
             HStack(spacing: 12) {
-                Label(shortNum(Int64(sub.agree.agreeNum)), systemImage: "hand.thumbsup")
-                    .font(.caption2).foregroundStyle(.secondary)
+                // 楼中楼点赞（对齐 Android SubPostItem 点赞可点）
+                LikeButton(threadId: threadId, postId: Int64(sub.id),
+                           isLiked: sub.agree.hasAgree_p == 1,
+                           count: sub.agree.agreeNum)
             }
         }
         .padding(.vertical, 4)
@@ -752,6 +826,7 @@ struct ReplySheet: View {
     @ObservedObject private var prefs = AppPreferences.shared
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    @State private var title = ""
     @State private var showEmoticon = false
     @State private var busy = false
     @State private var errorText: String?
@@ -768,11 +843,14 @@ struct ReplySheet: View {
             VStack(spacing: 0) {
                 Form {
                     if threadId == 0 {
+                        // Android 发主题帖：标题限 31 字（ReplyPage.kt 标题输入）
                         Section("标题") {
-                            TextField("标题（可选）", text: Binding(
-                                get: { threadTitle },
-                                set: { _ in }))
-                            .disabled(true)
+                            TextField("输入标题（最多 31 字）", text: $title)
+                                .onChange(of: title) { newValue in
+                                    if newValue.count > 31 {
+                                        title = String(newValue.prefix(31))
+                                    }
+                                }
                         }
                     }
                     Section {
@@ -910,9 +988,10 @@ struct ReplySheet: View {
             }
             if threadId == 0 {
                 // 发新主题贴（JSON `/c/c/thread/add`，MINI 通道）
+                let finalTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
                 _ = try await TiebaWriteEndpoints.addThread(
                     content: content, forumId: "\(forumId)", forumName: forumName,
-                    title: threadTitle, isHide: 1, isTitle: threadTitle.isEmpty ? 1 : 0)
+                    title: finalTitle, isHide: 1, isTitle: finalTitle.isEmpty ? 1 : 0)
             } else {
                 _ = try await TiebaExtraEndpoints.addPost(
                     client: .shared,

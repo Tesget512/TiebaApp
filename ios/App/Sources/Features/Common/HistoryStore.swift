@@ -21,9 +21,10 @@ enum HistoryStore {
         return list
     }
 
-    /// 记录一条浏览（同一 id 去重后置顶）
+    /// 记录一条浏览（同一 id 去重后置顶；无痕模式开启时不记录——Android 不保存浏览记录）
     static func record(type: Int, id: String, title: String, subtitle: String, avatar: String) {
         guard !id.isEmpty else { return }
+        guard !UserDefaults.standard.bool(forKey: "incognitoMode") else { return }
         var list = all().filter { !($0.type == type && $0.id == id) }
         list.insert(Item(type: type, id: id, title: title, subtitle: subtitle,
                          avatar: avatar, timestamp: Date().timeIntervalSince1970), at: 0)

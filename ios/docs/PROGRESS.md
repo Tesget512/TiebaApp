@@ -258,3 +258,43 @@
 **遗留观察**：xcodebuild 测试运行器在本环境卡死（基线 P13 无改动同样复现、
 新模拟器同样复现、重启 CoreSimulatorService 无效）——环境性问题，与本次改动
 无关；App 本体构建+启动正常。
+
+## 2026-11-07 P15 表情体系全量对齐 + 未对齐功能批量补全 ✅
+
+**表情（用户验收指出缺失）**：
+- **EmoticonManager 重写**（Android EmoticonManager.kt 1:1）：正确 DEFAULT_EMOTICON_MAPPING
+  （旧表大量名字错误：哈哈→"嘿嘿"、呼~→"哼"、笑眼→"可爱"等 20+ 处全部修正）；
+  全量 id 区间 1..50/61..101/125..137（76 个）；重复键取最后值（Kotlin mapOf 语义）；
+  UserDefaults 持久化（ids+mapping）；`register(id:name:)` 动态注册（pb type=2 内容）；
+  图片文件缓存 Caches/emoticon/{id}.png + 启动预下载（fetchEmoticons 对齐，串行防 76 并发）；
+  NSLock 线程安全（注册从数据层任意线程触发）。
+- **EmoticonText 内联渲染**（Android `String.emoticonString` + EmoticonText 对齐）：
+  正则 `#\(([\u4e00-\u9fa5\w~]+)\)` 匹配段 → Text(Image) 行内拼接（1.2×字号）；
+  未知名/未加载保留原文本；应用于 FeedCard 摘要、PbContentView 文本段、热榜标题。
+- **pb type=2 表情段**（Android PbContentRender 对齐）：text=id、c=名字 → 注册 + 渲染
+  `#(名字)`（旧实现渲染 "[名字]" 纯文本）。
+- **abstractText 修正**：type 2 表情段不再丢弃（Android abstractText 1:1，仅 0/40/2）。
+- **EmoticonPanel 对齐**（ReplyPage.EmoticonPanel）：named-only、自适应 48pt 网格、32pt 图。
+
+**功能对齐批量补全（双端全功能审计后）**：
+- **发帖标题输入启用**（bug：TextField 被 .disabled(true) 且 set 丢弃——只能发无标题贴）；
+  对齐 Android 31 字上限。
+- **无痕模式接线**：HistoryStore.record 尊重 incognitoMode（原为死开关）。
+- **字体缩放全局生效**：RootView dynamicTypeSize 8 档映射（原 fontScale 无消费点）。
+- **主题生效**：全局 .tint（自定义主色优先，否则当前主题主色）+ 夜间主题
+  preferredColorScheme（跟随系统/指定深色主题；原仅持久化不生效）。
+- **屏蔽视频帖接线**：ThreadListView 过滤视频帖（原死开关）；**隐藏媒体接线**：
+  FeedCard 封面不渲染（原死开关）。
+- **清除图片缓存**：设置-其他，显示"当前共有缓存 X"（URLCache+表情缓存统计），
+  清理 URLCache + 表情内存位图/文件（对齐 MoreSettingsPage）。
+- **剪贴板"打开"接线**（bug：LinkNavigator.handler 全工程无赋值，按钮空操作）：
+  RootView onAppear 绑定 → sheet 承载 RouteView（帖子/吧），对齐 Android 深链。
+- **视频内联播放器**（Android VideoContentRender→VideoPlayer widget 对齐）：
+  封面+播放按钮 → 点击 AVKit VideoPlayer 播放；无直链走网页分支。
+- **楼中楼点赞可点**（Android SubPostItem 对齐）：复用 LikeButton（/c/c/agree/opAgree）。
+- **吧页排序切换**：最新 tab ⋯ 菜单按回复时间/按发帖时间（sortType 已有状态，补 UI）。
+- 移除死开关「单列列表」（Android 吧列表双列布局专属，iOS 恒单列，注释说明）。
+
+**已知剩余缺口（下轮）**：搜索历史、吧内搜索（ForumSearchPostPage）、
+浏览历史双 tab（贴子记录/经过贴吧）、推荐流"不感兴趣"、图片加载设置/水印、
+沉浸阅读、收藏贴自动只看楼主/倒序、吧置顶管理、启动首选页。

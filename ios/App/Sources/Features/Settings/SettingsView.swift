@@ -34,7 +34,7 @@ struct SettingsView: View {
                     Label("字体大小（\(FontScaleOption.label(for: prefs.fontScale))）",
                           systemImage: "textformat.size")
                 }
-                Toggle("单列列表", isOn: $prefs.listSingle)
+                // 注：Android「单列显示」为吧列表双列布局开关，iOS 列表恒为单列，无对应项
             }
 
             Section("屏蔽") {
@@ -55,6 +55,7 @@ struct SettingsView: View {
 
             Section("其他") {
                 Toggle("隐藏媒体（图片/视频）", isOn: $prefs.hideMedia)
+                ClearCacheButton()
                 NavigationLink { AboutView() } label: {
                     Label("关于", systemImage: "info.circle")
                 }
@@ -62,6 +63,55 @@ struct SettingsView: View {
         }
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 清除图片缓存（对应 Android MoreSettingsPage 清除图片缓存）
+
+struct ClearCacheButton: View {
+    @State private var cacheSize: String = ""
+    @State private var toast: String?
+
+    /// 统计：URLCache 磁盘占用 + 表情文件缓存
+    static func calculateSize() -> String {
+        var bytes = URLCache.shared.currentDiskUsage
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("emoticon", isDirectory: true)
+        if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]) {
+            for f in files {
+                bytes += (try? f.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            }
+        }
+        if bytes < 1024 { return "\(bytes) B" }
+        if bytes < 1024 * 1024 { return String(format: "%.1f KB", Double(bytes) / 1024) }
+        return String(format: "%.1f MB", Double(bytes) / (1024 * 1024))
+    }
+
+    /// 清理：URLCache 内存+磁盘 + 表情缓存（内存位图 + 文件）
+    static func clearAll() {
+        URLCache.shared.removeAllCachedResponses()
+        EmoticonManager.shared.clearImageCache()
+    }
+
+    var body: some View {
+        Button {
+            Self.clearAll()
+            toast = "清除成功"
+            cacheSize = Self.calculateSize()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { toast = nil }
+        } label: {
+            HStack {
+                Text("清除图片缓存").foregroundStyle(.primary)
+                Spacer()
+                if toast != nil {
+                    Text("清除成功").font(.footnote).foregroundStyle(.green)
+                } else {
+                    Text(cacheSize.isEmpty ? "计算中…" : "当前共有缓存 \(cacheSize)")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .onAppear { cacheSize = Self.calculateSize() }
     }
 }
 
