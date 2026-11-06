@@ -35,5 +35,9 @@ echo "共 ${#PROTO_FILES[@]} 个 proto 文件"
   -I "$PROTO_SRC" \
   "${PROTO_FILES[@]}"
 
+# 多个子目录存在同名 message（如 ForumRecommend/LikeForum 与 ForumGuide/LikeForum），
+# Xcode 不允许同名 build input，需唯一化文件名（Swift 内部类型名不变）。
+/usr/bin/python3 "$IOS_DIR/scripts/dedup_proto_files.py"
+
 echo "生成 $(find "$OUT_DIR" -name '*.swift' | wc -l | tr -d ' ') 个 Swift 文件"
 echo "总行数: $(find "$OUT_DIR" -name '*.swift' -exec cat {} + | wc -l | tr -d ' ')"
