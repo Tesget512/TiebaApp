@@ -186,3 +186,18 @@
     ReplySheet 提交（超出 Android 行为，已注明）；
   - Android ImageUploader 大图分片（>512KB 多 chunk）→ iOS 仅单分片（≤512KB 自动压缩），
     完整分片协议留待后续。
+
+## 2026-11-06 P10 GitHub fork 建立与本地 git 配置 ✅
+
+- **认证探测**：SSH key（kurako_vm_ed25519）未注册到 GitHub（publickey 拒绝）；
+  macOS keychain 存有 github.com 的 https 凭证（Tesget512），经 `/user` API 验证有效。
+- **fork 建立**：`POST /repos/Aur5411/TiebaApp/forks`（202 异步受理）→ 轮询 200，
+  **`https://github.com/Tesget512/TiebaApp`** 就绪（default_branch=main）。
+- **本地 git 配置**：
+  - `origin` → `https://github.com/Tesget512/TiebaApp.git`（fork，推送目标）
+  - `upstream` → `https://github.com/Aur5411/TiebaApp.git`（原作者，同步源）
+  - `git push -u origin ios`：ios 分支（7c7fc2a，P0–P9 全部工作）已推送并跟踪
+  - `git push -u origin main`：main（f2cabd3）与 fork 一致
+  - `git ls-remote` 复核：fork 上两个分支哈希与本地一致
+- 后续工作流：日常提交推 `origin`（fork）；同步上游用
+  `git fetch upstream && git merge upstream/main`（main）；向原作者贡献则从 fork 发 PR。

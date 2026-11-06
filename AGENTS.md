@@ -24,6 +24,13 @@
 
 ## 仓库事实
 
+- **fork 结构（2026-11-06 建立）**：GitHub 账号 `Tesget512` 下已有 fork
+  `https://github.com/Tesget512/TiebaApp`（parent: `Aur5411/TiebaApp`）。
+  本地 remote：**`origin` = Tesget512/TiebaApp（fork，推送目标）**，
+  **`upstream` = Aur5411/TiebaApp（原作者，只作同步源）**。
+  `ios` 分支（iOS 原生实现全部工作）与 `main` 均已推送并跟踪 origin。
+- GitHub 认证走 macOS keychain 的 https 凭证（`git credential fill` 可取），
+  `gh` CLI 未安装；API 调用需走 Clash 代理。SSH key (`kurako_vm_ed25519`) 未注册到 GitHub。
 - 本仓库是 TiebaLite（百度贴吧第三方客户端）的 fork：`main` = 纯 Android（Kotlin+Compose+
   Retrofit+Wire protobuf+OkHttp），**没有任何 iOS 代码**；`ios` 分支 = 新增 `ios/` 原生
   SwiftUI 应用，Android 代码保持不动。
