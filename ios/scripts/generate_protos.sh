@@ -8,7 +8,7 @@ TOOLS_DIR="$IOS_DIR/.tools"
 PROTO_SRC="$REPO_DIR/app/src/main/protos"
 OUT_DIR="$IOS_DIR/Generated/Protos"
 PROTOC="$TOOLS_DIR/protoc/bin/protoc"
-GEN_SWIFT="$TOOLS_DIR/swift-protobuf/.build/release/protoc-gen-swift"
+GEN_SWIFT="$TOOLS_DIR/sp-1.28.2/.build/release/protoc-gen-swift"
 
 [ -x "$PROTOC" ] || { echo "缺少 protoc，先运行 bootstrap_tools.sh"; exit 1; }
 [ -x "$GEN_SWIFT" ] || { echo "缺少 protoc-gen-swift，先运行 bootstrap_tools.sh"; exit 1; }
