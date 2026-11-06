@@ -64,3 +64,14 @@
   图片 URL 优先级(originPic>bigPic>srcPic)、shortNum 万位缩写
 - AppState 注入 TiebaAPIClient.accountProvider（登录态进入 CommonRequest.BDUSS）
 - 遗留：楼中楼详情页、搜索页、通知页(JSON 通道)、点赞/签到写操作（后续迭代）
+
+## 2026-11-06 P6+P7 完成任务目标 ✅
+
+- **adhoc ipa 构建成功**：`ios/build/TiebaLite-adhoc.ipa`（1.5MB，arm64 Release）
+  - 关键事实：Xcode 26 SDK 直接 adhoc 构建报错 "Ad Hoc code signing is not allowed
+    with SDK 'iOS 26.5'"，采用 CODE_SIGNING_ALLOWED=NO 构建 + `codesign --sign -` 手动签名
+  - 验收全过：Signature=adhoc、TeamIdentifier=not set、无 embedded.mobileprovision、
+    codesign --verify --strict 通过、脚本可重复执行（scripts/build_ipa.sh）
+- ios/README.md：构建说明、功能状态、协议要点、测试说明
+- 任务闭环：P0 计划书 → P1 工具链 → P2 proto → P3 骨架 → P4a 指纹 → P4b 协议 →
+  P5 UI → P6 ipa，全部阶段记录在案

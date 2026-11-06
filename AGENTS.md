@@ -45,14 +45,19 @@
 
 ## iOS 工程约定
 
-- Xcode 项目为手写 pbxproj（Xcode 16+ `PBXFileSystemSynchronizedRootGroup` 格式，
-  objectVersion 77）：`App/` 同步组自动纳管源码；proto 生成物放 `ios/Generated/Protos/`。
-- SwiftProtobuf 为本地 SPM 包引用（`ios/ThirdParty/SwiftProtobuf`，浅克隆固定 tag，离线可构建）。
-- 部署目标 iOS 16.0；架构 arm64（真机）+ x86_64（Intel 模拟器）。
-- 构建脚本：`ios/scripts/build_ipa.sh` → 产出**仅 adhoc 签名**（`CODE_SIGN_IDENTITY=-`，
-  无描述文件、无 team）的 `build/TiebaLite-adhoc.ipa`。adhoc 包不能直接装非越狱设备，
-  由用户自行重签使用。
-- proto 重新生成：`ios/scripts/generate_protos.sh`（需要 P1 工具链，产物不手改）。
+- Xcode 项目由 `ios/scripts/gen_project.py` 生成（objectVersion 54 显式格式，
+  Xcode 16+ synchronized groups 手写不可行）：源文件增删后重跑，**生成后必须清
+  DerivedData**（增量构建不感知文件集变化）。
+- SwiftProtobuf **不用 SPM**（Xcode 26 下 local package 模块解析不可靠）：1.28.2 运行时
+  源码编入静态库 target `SwiftProtobufCore`，设 `PRODUCT_MODULE_NAME=SwiftProtobuf`，
+  proto 生成物用同版本 protoc-gen-swift 生成并原样 `import SwiftProtobuf`。
+- 部署目标 iOS 16.0（不用 iOS 17+ API，如 ContentUnavailableView）；真机 arm64 +
+  Intel 模拟器 x86_64。
+- **adhoc ipa 流程**：Xcode 26 SDK 禁止直接 adhoc 构建（"Ad Hoc code signing is not
+  allowed"），须 `CODE_SIGNING_ALLOWED=NO` 构建 + `codesign --sign -` 手动签名。
+  一键脚本 `ios/scripts/build_ipa.sh` → `build/TiebaLite-adhoc.ipa`。
+- proto 重新生成：`ios/scripts/generate_protos.sh`（protoc-gen-swift 1.28.2 +
+  dedup 同名文件 + 删除多余 import），产物不手改。
 
 ## 阶段进度
 
