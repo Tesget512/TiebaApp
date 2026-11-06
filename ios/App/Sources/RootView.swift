@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 根视图：底部 Tab（发现/进吧/通知/我的），未登录时显示登录入口。
+/// 根视图：底部 Tab（发现/进吧/通知/我的），未登录可用（读接口无需登录）。
 struct RootView: View {
     @EnvironmentObject var appState: AppState
     @State private var selectedTab = 0
@@ -8,102 +8,58 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             ExploreView()
-                .tabItem {
-                    Image(systemName: "safari")
-                    Text("发现")
-                }
+                .tabItem { Label("发现", systemImage: "safari") }
                 .tag(0)
 
             MyForumsView()
-                .tabItem {
-                    Image(systemName: "square.grid.2x2")
-                    Text("进吧")
-                }
+                .tabItem { Label("进吧", systemImage: "square.grid.2x2") }
                 .tag(1)
 
             NotificationsView()
-                .tabItem {
-                    Image(systemName: "bell")
-                    Text("通知")
-                }
+                .tabItem { Label("通知", systemImage: "bell") }
                 .tag(2)
 
             ProfileView()
-                .tabItem {
-                    Image(systemName: "person.crop.circle")
-                    Text("我的")
-                }
+                .tabItem { Label("我的", systemImage: "person.crop.circle") }
                 .tag(3)
         }
-        .sheet(isPresented: .constant(!appState.isLoggedIn)) {
-            LoginView()
-        }
     }
 }
 
-struct ExploreView: View {
-    var body: some View {
-        NavigationStack {
-            Text("发现")
-                .navigationTitle("发现")
-        }
-    }
-}
-
+/// 进吧：常用吧入口 + 搜索（v1 提供固定入口列表）
 struct MyForumsView: View {
-    var body: some View {
-        NavigationStack {
-            Text("进吧")
-                .navigationTitle("进吧")
-        }
-    }
-}
-
-struct NotificationsView: View {
-    var body: some View {
-        NavigationStack {
-            Text("通知")
-                .navigationTitle("通知")
-        }
-    }
-}
-
-struct ProfileView: View {
-    var body: some View {
-        NavigationStack {
-            Text("我的")
-                .navigationTitle("我的")
-        }
-    }
-}
-
-struct LoginView: View {
-    @EnvironmentObject var appState: AppState
-    @Environment(\.dismiss) private var dismiss
+    @State private var navigationPath = NavigationPath()
+    static let commonForums = ["李毅", "孙笑川", "原神", "抗压背锅怪", "魔兽世界", "戒赌吧"]
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                Text("登录百度账号")
-                    .font(.title2.bold())
-                Text("通过百度通行证页面登录，客户端仅获取 BDUSS/STOKEN Cookie。")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                Button("打开登录页") {
-                    // TODO(P4): 打开 WKWebView 登录
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .padding()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    if appState.isLoggedIn {
-                        Button("完成") { dismiss() }
+        NavigationStack(path: $navigationPath) {
+            List {
+                Section("常用吧") {
+                    ForEach(Self.commonForums, id: \.self) { name in
+                        Button {
+                            navigationPath.append(ForumRoute(forumName: name))
+                        } label: {
+                            Label(name, systemImage: "bubble.left.and.bubble.left.and.bubble.right")
+                                .foregroundStyle(.primary)
+                        }
                     }
                 }
             }
+            .navigationTitle("进吧")
+            .navigationDestination(for: ForumRoute.self) { route in
+                ForumPage(forumName: route.forumName)
+            }
+        }
+    }
+}
+
+/// 通知：需要登录 + JSON 通道（P5 后续实现）
+struct NotificationsView: View {
+    var body: some View {
+        NavigationStack {
+            UnavailableView(title: "暂未开放", systemImage: "bell.slash",
+                                description: "通知功能需要登录后使用，将在后续版本提供。")
+                .navigationTitle("通知")
         }
     }
 }

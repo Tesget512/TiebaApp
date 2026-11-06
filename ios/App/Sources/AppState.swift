@@ -11,6 +11,8 @@ final class AppState: ObservableObject {
     init() {
         account = store.load()
         isLoggedIn = account?.bduss != nil
+        // 把登录态注入 API 客户端（CommonRequest 的 BDUSS/stoken 等）
+        TiebaAPIClient.shared.accountProvider = { [weak self] in self?.account }
     }
 
     func updateAccount(_ newAccount: Account) {

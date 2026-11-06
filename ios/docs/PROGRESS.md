@@ -50,3 +50,17 @@
   SwiftProtobufCore 设置 PRODUCT_MODULE_NAME=SwiftProtobuf 使生成代码 import 不变
 - 构建经验：pbxproj 变更后必须清 DerivedData（增量构建不感知文件集变化）
 - 遗留：登录 WebView（P4c）、JSON 通道（opAgree/sign）、UI 层（P5）
+
+## 2026-11-06 P5 核心 UI 完成 ✅（模拟器真实验收）
+
+- **发现页渲染真实贴吧推荐流**（截图验收）：头像/用户名/吧名 chip/标题/摘要/缩略图/
+  视频标记/分享·回复·点赞数全部来自真实 API（personalized cmd=309264）
+- 页面清单：RootView(4 Tab)、ExploreView(发现,下拉刷新)、ForumPage(吧页,最新/精华切换)、
+  ThreadPage(帖子,楼层+PbContent 富文本)、ProfileView(我的,Keychain 登录态)、
+  LoginView(WKWebView 百度通行证→抓 BDUSS/STOKEN→/c/s/login 换 uid/tbs)
+- 组件：FeedCard(三段式)、ThreadListView、PbContentView(type 0/1/2/3/4/5/10 富文本)、
+  RemoteImage(AsyncImage)、UnavailableView(iOS16 兼容占位)
+- ThreadModels 扩展：头像 URL 拼接(tb.himg.baidu.com)、相对时间、摘要提取、
+  图片 URL 优先级(originPic>bigPic>srcPic)、shortNum 万位缩写
+- AppState 注入 TiebaAPIClient.accountProvider（登录态进入 CommonRequest.BDUSS）
+- 遗留：楼中楼详情页、搜索页、通知页(JSON 通道)、点赞/签到写操作（后续迭代）
