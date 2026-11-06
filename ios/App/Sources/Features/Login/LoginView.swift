@@ -8,6 +8,8 @@ struct LoginView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var statusText = ""
     @State private var isExchanging = false
+    /// +1 强制 LoginWebView 重建（清除网页登录状态后）
+    @State private var webViewToken = 0
 
     /// 登录后百度会跳到贴吧个人中心，用该地址判定登录完成
     static let loginURL = URL(string:
@@ -30,6 +32,7 @@ struct LoginView: View {
                     Task { await exchangeAccount(bduss: bduss, stoken: stoken,
                                                  cookieHeader: cookieHeader) }
                 }
+                .id(webViewToken) // token 变化时重建 WebView（清除 Cookie 后强制重新登录）
             }
             .navigationTitle("登录百度账号")
             .navigationBarTitleDisplayMode(.inline)
@@ -37,7 +40,32 @@ struct LoginView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") { dismiss() }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button(role: .destructive) {
+                            Task {
+                                statusText = "正在清除网页登录状态…"
+                                await Self.clearBaiduCookies()
+                                webViewToken += 1
+                                statusText = "已清除，请重新登录"
+                            }
+                        } label: {
+                            Label("清除网页登录状态", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
             }
+        }
+    }
+
+    /// 清除 WKWebView 中所有百度域 Cookie（排查旧登录状态残留；仅手动触发）
+    static func clearBaiduCookies() async {
+        let store = WKWebsiteDataStore.default().httpCookieStore
+        let cookies = await store.allCookies()
+        for c in cookies where c.domain.lowercased().contains("baidu.com") {
+            await store.delete(c)
         }
     }
 
@@ -97,22 +125,23 @@ struct LoginWebView: UIViewRepresentable {
             startPolling(webView)
         }
 
-        /// 登录成功时百度可能通过 JS 跳转，兜底在决策阶段也检查一次
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            self.webView = webView
             decisionHandler(.allow)
         }
 
-        /// 登录跳转常由 JS 完成（不触发 didFinish），所以：
-        /// 1. 注册 cookieStore 变更观察（含 HttpOnly cookie）
-        /// 2. 每秒轮询一次，最长 30s；BDUSS 出现或**变化**都会提交换取
+        /// 1:1 对齐 Android `LoginWebViewClient.onPageFinished` 的提交条件：
+        /// - URL 落在 tieba.baidu.com / tiebac.baidu.com 的 `/index/tbwise/`（登录成功的落点）
+        /// - 该 URL 下 BDUSS **和** STOKEN 同时存在（缺一不提交，等待轮询）
+        /// 登录跳转常由 JS 完成（不触发 didFinish），所以注册 cookieStore 观察并每秒轮询。
         private func startPolling(_ webView: WKWebView) {
             self.webView = webView
             let store = webView.configuration.websiteDataStore.httpCookieStore
             store.add(self)
             guard pollTask == nil else { return }
             pollTask = Task { [weak self] in
-                for _ in 0..<30 {
+                for _ in 0..<60 {
                     guard let self else { return }
                     await self.checkCookies()
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -129,22 +158,63 @@ struct LoginWebView: UIViewRepresentable {
 
         private func checkCookies() async {
             guard let webView else { return }
+            // 提交条件 1：URL 必须已在贴吧个人中心（Android 同款判定）
+            guard let current = webView.url, Self.isOnTiebaMine(current) else { return }
             let store = webView.configuration.websiteDataStore.httpCookieStore
             let cookies: [HTTPCookie] = await withCheckedContinuation { cont in
                 store.getAllCookies { cont.resume(returning: $0) }
             }
+            // 提交条件 2：按当前 URL 域名过滤（模拟 CookieManager.getCookie(url)），
+            // BDUSS 与 STOKEN 必须同时存在
+            let matched = Self.cookies(for: current, from: cookies)
             var bduss = "", stoken = ""
             var pairs: [String] = []
-            for c in cookies where c.domain.contains("baidu.com") {
+            for c in matched {
                 pairs.append("\(c.name)=\(c.value)")
                 if c.name == "BDUSS" { bduss = c.value }
                 if c.name == "STOKEN" { stoken = c.value }
             }
-            // 空值跳过；同一 BDUSS 不重复提交；新 BDUSS（重新登录/换号）自动重试
-            guard !bduss.isEmpty, bduss != lastSubmittedBduss else { return }
+            guard !bduss.isEmpty, !stoken.isEmpty, bduss != lastSubmittedBduss else { return }
             lastSubmittedBduss = bduss
+            // Android LoginPage：登录时保存 BAIDUID
+            for c in matched where c.name == "BAIDUID" {
+                ClientUtils.setBaiduId(c.value)
+            }
             let header = pairs.joined(separator: "; ")
             await MainActor.run { self.parent.onCookies(bduss, stoken, header) }
+        }
+
+        /// Android 判定：`url.startsWith("https://tieba.baidu.com/index/tbwise/")`（含 tiebac）
+        static func isOnTiebaMine(_ url: URL) -> Bool {
+            let host = url.host?.lowercased() ?? ""
+            guard host == "tieba.baidu.com" || host == "tiebac.baidu.com" else { return false }
+            return url.path.hasPrefix("/index/tbwise")
+        }
+
+        /// 模拟 `CookieManager.getCookie(url)` 的域名匹配：
+        /// cookie 域（去前导点后）等于 host，或是 host 的父域
+        static func cookies(for url: URL, from all: [HTTPCookie]) -> [HTTPCookie] {
+            let host = (url.host ?? "").lowercased()
+            func matches(_ c: HTTPCookie) -> Bool {
+                var d = c.domain.lowercased()
+                if d.hasPrefix(".") { d.removeFirst() }
+                if d.isEmpty { return false }
+                return d == host || host.hasSuffix("." + d)
+            }
+            let filtered = all.filter(matches)
+            // 同名 Cookie 冲突时：精确 host 优先于父域（CookieManager 的 host 优先语义）
+            var best: [String: HTTPCookie] = [:]
+            for c in filtered {
+                let key = c.name
+                if let old = best[key] {
+                    let cExact = c.domain.lowercased() == host
+                    let oldExact = old.domain.lowercased() == host
+                    if cExact && !oldExact { best[key] = c }
+                } else {
+                    best[key] = c
+                }
+            }
+            return Array(best.values)
         }
     }
 }

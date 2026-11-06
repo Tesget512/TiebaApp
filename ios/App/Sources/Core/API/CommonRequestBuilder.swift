@@ -175,6 +175,12 @@ enum ClientUtils {
         }
         return ""
     }
+
+    /// 登录页抓到 BAIDUID 时主动保存（Android LoginPage 登录成功时 saveBaiduId 1:1）
+    static func setBaiduId(_ v: String) {
+        guard !v.isEmpty else { return }
+        d.set(v, forKey: "tieba.baiduId")
+    }
 }
 
 /// 屏幕参数（对应 Android `App.ScreenInfo`，由 BaseActivity.getDeviceDensity 填充）

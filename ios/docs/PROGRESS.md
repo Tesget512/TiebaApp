@@ -201,3 +201,60 @@
   - `git ls-remote` 复核：fork 上两个分支哈希与本地一致
 - 后续工作流：日常提交推 `origin`（fork）；同步上游用
   `git fetch upstream && git merge upstream/main`（main）；向原作者贡献则从 fork 发 PR。
+
+## 2026-11-06 P11 第一轮验收修复：封面右侧/底栏对齐/搜索重构/登录持久化 ✅ (d9a2b82)
+
+- **封面固定右侧**：FeedCard 内容区 HStack 加 `Spacer(minLength: 8)`，多图右对齐成排（≤3 张）。
+- **底栏对齐 Android**：发现/进吧/通知/我的（原"搜索"底栏项改为发现页工具栏放大镜）。
+- **全部列表页补 `.refreshable`** 下拉刷新。
+- **登录持久化修复**：先写失败测试证实 Keychain 在未签名模拟器构建下静默失败
+  （SecItemAdd 状态成功但回读失败）→ AccountStore 双通道（Keychain 回读校验 +
+  Application Support 文件兜底，NSFileProtectionComplete）。
+
+## 2026-11-07 P12/P13 第二轮验收修复：作者映射/隐藏底栏/登录参数补齐 ✅ (5e5eff5, 544b89a)
+
+- **user_list 作者映射**：proto Post/ThreadInfo 只带 author_id，作者信息在响应级
+  `user_list`——新增 AuthorResolver（id → Tieba_User join），应用于 ThreadPage、
+  ForumPage、GeneralTabListPage。
+- **详情页隐藏底栏**：16 个 push 页面加 `.toolbar(.hidden, for: .tabBar)`。
+- **登录**：official 渠道公共参数扩到 ~25 个；`_client_id/_phone_imei` 键名修正；
+  错误文案带 `[code N]`；WebView cookie 抓取注册 WKHTTPCookieStoreObserver +
+  30s 轮询 + 新 BDUSS 自动重试。
+
+## 2026-11-07 P14 登录根因修复：`/c/s/login` 双路径对齐 Android ✅
+
+**用户反馈**：`[code 1] 用户未登录或登录失败` 持续出现（WebView 内已登录）。
+
+**根因（读 Android 源码逐行核实）**：
+1. `/c/s/login` 有**两条参数集不同的路径**（MixedTiebaApiImpl.kt:1010-1021），
+   P13 混用了：
+   - **web 登录路径**（LoginPage 用）：`loginFlow("$bduss|", sToken, null)` ——
+     bdusstoken 竖线后为**空串**、user_id **强制不发**、stoken=WebView 抓取值；
+   - **无参刷新路径**（MainActivityV2.fetchAccount 用）：默认参数
+     `bdusstoken="BDUSS|null"` + 已存 stoken + 已存 user_id。
+   P13 用了 `"BDUSS|null"` + `stoken=""` → 服务端拒绝（code 1）。
+2. **提交时机过早**：Android LoginPage（onPageFinished）要求 URL 落在
+   `tieba.baidu.com/index/tbwise/` 且 BDUSS 与 STOKEN **同时存在**才提交；
+   iOS 旧版见到 BDUSS 就提交（STOKEN 尚未设置 → stoken 空 → 必败），且
+   `lastSubmittedBduss` 去重导致 STOKEN 到位后**不再重试**。
+3. **登录态残留污染**（用户怀疑证实）：设备 `currentUid` 跨重装残留；
+   App 进程 HTTPCookieStorage 也有旧百度 cookie。URLSession 默认
+   `httpShouldHandleCookies` 会把陈旧 cookie 合并进登录请求 → 登录请求
+   `httpShouldHandleCookies = false`。
+
+**修复**：
+- TiebaLoginClient 拆分 `fetchAccount`（web 路径）/`refreshAccount`（刷新路径）；
+  公共参数补齐全量 OFFICIAL_TIEBA_API 集（defaultCommonParamInterceptor 8 项 +
+  扩展 24 项 + StParamInterceptor st 统计参数 + 完整请求头 Cookie/cuid/c3_aid/
+  client_log_id 等，RetrofitTiebaApi.kt:185-231 1:1）。
+- LoginView 提交条件对齐 Android：URL 在 tbwise + BDUSS/STOKEN 双非空 +
+  当前 URL 域名过滤（模拟 CookieManager.getCookie(url)，精确 host 优先）；
+  登录时保存 BAIDUID（LoginPage saveBaiduId 对齐）；新增"清除网页登录状态"按钮。
+- 登录后链路补齐：initNickname + userProfile 补 nameShow/portrait
+  （fetchAccountFlow zip 顺序对齐）。
+- AppState 启动刷新账号（MainActivityV2.fetchAccount 对齐：已登录时刷新，
+  失败仅忽略）。
+
+**遗留观察**：xcodebuild 测试运行器在本环境卡死（基线 P13 无改动同样复现、
+新模拟器同样复现、重启 CoreSimulatorService 无效）——环境性问题，与本次改动
+无关；App 本体构建+启动正常。

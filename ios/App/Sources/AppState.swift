@@ -19,6 +19,15 @@ final class AppState: ObservableObject {
         TiebaAPIClient.shared.accountProvider = { [weak self] in self?.account }
         TiebaJSONClient.shared.accountProvider = { [weak self] in self?.account }
         Task { await TiebaWriteEndpoints.sync() }
+        // 启动刷新账号（Android MainActivityV2.fetchAccount 1:1：已登录时刷新 tbs 等登录态，失败仅忽略）
+        if account?.bduss.isEmpty == false {
+            Task { [weak self] in
+                guard let self, let acc = self.account else { return }
+                if let refreshed = try? await TiebaLoginClient.refreshAccount(acc) {
+                    self.updateAccount(refreshed)
+                }
+            }
+        }
     }
 
     func updateAccount(_ newAccount: Account) {
@@ -49,11 +58,10 @@ final class AppState: ObservableObject {
         isLoggedIn = account?.bduss.isEmpty == false
     }
 
-    /// tbs 为空时刷新账号（签到/点赞等写操作前置）
+    /// tbs 为空时刷新账号（签到/点赞等写操作前置；走无参刷新路径）
     func refreshTbsIfNeeded() async {
         guard let account, account.tbs.isEmpty, !account.bduss.isEmpty else { return }
-        if let refreshed = try? await TiebaLoginClient.fetchAccount(bduss: account.bduss,
-                                                                   stoken: account.stoken) {
+        if let refreshed = try? await TiebaLoginClient.refreshAccount(account) {
             updateAccount(refreshed)
         }
     }
