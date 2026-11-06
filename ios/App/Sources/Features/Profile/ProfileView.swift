@@ -43,6 +43,11 @@ struct ProfileView: View {
                             Label("我的关注吧", systemImage: "square.grid.2x2")
                         }
                         NavigationLink {
+                            EditProfilePage()
+                        } label: {
+                            Label("修改资料", systemImage: "pencil.line")
+                        }
+                        NavigationLink {
                             ThreadStorePage()
                         } label: {
                             Label("我的收藏", systemImage: "star")
@@ -51,6 +56,19 @@ struct ProfileView: View {
                             HistoryPageView()
                         } label: {
                             Label("浏览历史", systemImage: "clock.arrow.circlepath")
+                        }
+                    }
+
+                    Section {
+                        NavigationLink {
+                            SettingsView()
+                        } label: {
+                            Label("设置", systemImage: "gearshape")
+                        }
+                        NavigationLink {
+                            AboutView()
+                        } label: {
+                            Label("关于", systemImage: "info.circle")
                         }
                     }
 

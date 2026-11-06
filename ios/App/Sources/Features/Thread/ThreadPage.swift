@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import PhotosUI
 
 /// PbContent 富文本渲染（对应 Android PbContentRender 的 iOS 版）：
 /// type 0/9/27/35/40=文字、1=链接、2=表情、3/20=图片、4=@用户、5=视频、10=语音
@@ -116,6 +117,15 @@ struct ThreadPage: View {
     @State private var isStored = false
     @State private var toast: String?
     @State private var showReply = false
+    @State private var showPhoto = false
+    @State private var photoUrls: [String] = []
+    @State private var photoIndex = 0
+    @State private var showReport = false
+    @State private var reportURL: URL?
+    @State private var selectedPollOptions: Set<UInt64> = []
+    @State private var pollVoted = false
+    /// 主题贴的投票信息（PbPage 响应的 thread.poll_info）
+    @State private var pollInfo: Tieba_PollInfo?
     /// 楼层列表首个楼层 pid（回复主题作者用）
     @State private var threadAuthorName = ""
 
@@ -158,6 +168,19 @@ struct ThreadPage: View {
                         ShareLink(item: URL(string: "https://tieba.baidu.com/p/\(threadID)")!) {
                             Label("分享", systemImage: "square.and.arrow.up")
                         }
+                        if appState.isLoggedIn {
+                            Divider()
+                            Button {
+                                Task { await reportThread() }
+                            } label: {
+                                Label("举报主题贴", systemImage: "exclamationmark.bubble")
+                            }
+                            Button(role: .destructive) {
+                                Task { await deleteThread() }
+                            } label: {
+                                Label("删除主题贴", systemImage: "trash")
+                            }
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -166,6 +189,21 @@ struct ThreadPage: View {
             .navigationDestination(for: FloorSelection.self) { sel in
                 FloorDetailPage(threadId: threadID, postId: sel.postId,
                                 forumId: resolvedForumId, title: "\(sel.floor)楼评论")
+            }
+            .fullScreenCover(isPresented: $showPhoto) {
+                NavigationStack {
+                    PhotoViewPage(urls: photoUrls, initialIndex: photoIndex)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button("关闭") { showPhoto = false }
+                            }
+                        }
+                }
+            }
+            .sheet(isPresented: $showReport) {
+                if let reportURL {
+                    NavigationStack { WebViewPage(url: reportURL) }
+                }
             }
             .sheet(isPresented: $showReply) {
                 ReplySheet(threadId: threadID, forumId: resolvedForumId,
@@ -210,6 +248,71 @@ struct ThreadPage: View {
         }
     }
 
+    /// 是否自己的楼层（对应 Android isSelfPost：author_id == user.id）
+    private func isMyPost(_ post: Tieba_Post) -> Bool {
+        guard let uidStr = appState.account?.uid, let uid = Int64(uidStr) else { return false }
+        return post.author.id == uid
+    }
+
+    /// 举报楼层（对应 Android reportPost：checkjubao 拿 URL → 内置 WebView）
+    private func report(_ post: Tieba_Post) async {
+        guard appState.isLoggedIn else { toast = "请先登录"; return }
+        do {
+            let url = try await TiebaWriteEndpoints.checkReport(postId: "\(post.id)")
+            if !url.isEmpty, let u = URL(string: url) {
+                reportURL = u
+                showReport = true
+            } else {
+                toast = "举报页地址获取失败"
+            }
+        } catch {
+            toast = error.localizedDescription
+        }
+    }
+
+    /// 删除回复（对应 Android DeletePost）
+    private func deletePost(_ post: Tieba_Post) async {
+        guard appState.isLoggedIn, let account = appState.account else { return }
+        if AppPreferences.shared.safeMode { toast = "安全模式已开启，写操作被拦截"; return }
+        do {
+            try await TiebaWriteEndpoints.delPost(
+                forumId: resolvedForumId, forumName: forumName,
+                threadId: threadID, postId: Int64(bitPattern: post.id),
+                tbs: account.tbs, delMyPost: isMyPost(post))
+            posts.removeAll { $0.id == post.id }
+            toast = "已删除"
+        } catch {
+            toast = error.localizedDescription
+        }
+    }
+
+    private func openPhoto(_ urls: [String], _ index: Int) {
+        photoUrls = urls
+        photoIndex = index
+        showPhoto = true
+    }
+
+    /// 举报主题贴（用首楼 pid）
+    private func reportThread() async {
+        guard let first = posts.first else { return }
+        await report(first)
+    }
+
+    /// 删除主题贴（对应 Android delThreadFlow；delete_my_thread 由是否楼主决定）
+    private func deleteThread() async {
+        guard appState.isLoggedIn, let account = appState.account else { return }
+        if AppPreferences.shared.safeMode { toast = "安全模式已开启，写操作被拦截"; return }
+        let isMine = isMyPost(posts.first ?? Tieba_Post())
+        do {
+            try await TiebaWriteEndpoints.delThread(
+                forumId: resolvedForumId, forumName: forumName, threadId: threadID,
+                tbs: account.tbs, delMyThread: isMine)
+            toast = "已删除主题贴"
+        } catch {
+            toast = error.localizedDescription
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
         if isLoading && posts.isEmpty {
@@ -219,6 +322,11 @@ struct ThreadPage: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    // 投票组件（对应 Android PollWidget，置于楼层列表顶部）
+                    if let poll = pollInfo {
+                        pollSection(poll)
+                        Divider()
+                    }
                     ForEach(Array(posts.enumerated()), id: \.offset) { idx, post in
                         postCard(post, floor: floorNumber(post, index: idx))
                         Divider()
@@ -235,6 +343,74 @@ struct ThreadPage: View {
     /// 楼层号：Android 用 Post.floor
     private func floorNumber(_ post: Tieba_Post, index: Int) -> Int {
         post.floor > 0 ? Int(post.floor) : index + 1
+    }
+
+    // MARK: 投票（对应 Android PollWidget + ThreadUiIntent.PollThread）
+
+    @ViewBuilder
+    private func pollSection(_ poll: Tieba_PollInfo) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !poll.title.isEmpty {
+                Text(poll.title).font(.subheadline.weight(.semibold))
+            }
+            let total = poll.options.reduce(0) { $0 + $1.num }
+            ForEach(Array(poll.options.enumerated()), id: \.element.id) { _, opt in
+                Button {
+                    guard appState.isLoggedIn, !pollVoted else { return }
+                    if selectedPollOptions.contains(UInt64(opt.id)) {
+                        selectedPollOptions.remove(UInt64(opt.id))
+                    } else {
+                        selectedPollOptions.insert(UInt64(opt.id))
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: selectedPollOptions.contains(UInt64(opt.id))
+                              ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selectedPollOptions.contains(UInt64(opt.id)) ? .blue : .secondary)
+                        Text(opt.text).font(.footnote)
+                        Spacer()
+                        if pollVoted {
+                            Text("\(shortNum(opt.num))票")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(10)
+                    .background(Color(.secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+            }
+            Button {
+                Task { await vote() }
+            } label: {
+                Text(pollVoted ? "已投票" : "投票")
+                    .frame(maxWidth: .infinity)
+                    .font(.footnote.bold())
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(selectedPollOptions.isEmpty || pollVoted || !appState.isLoggedIn)
+            if total > 0 {
+                Text("共 \(shortNum(total)) 人投票")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+    }
+
+    private func vote() async {
+        guard let poll = pollInfo else { return }
+        guard appState.isLoggedIn, let account = appState.account else { return }
+        if AppPreferences.shared.safeMode { toast = "安全模式已开启，写操作被拦截"; return }
+        let options = selectedPollOptions.map(String.init).joined(separator: ",")
+        do {
+            try await TiebaExtraEndpoints.addPollPost(client: .shared, forumId: resolvedForumId,
+                                                      threadId: threadID, options: options)
+            pollVoted = true
+            toast = "投票成功"
+            await reload()
+        } catch {
+            toast = error.localizedDescription
+        }
     }
 
     private func reload() async {
@@ -255,6 +431,9 @@ struct ThreadPage: View {
             nextPage = Int(data.page.currentPage)
             hasMore = data.page.hasMore_p != 0
             errorText = nil
+            // 投票信息（Android resolvePollInfo：options 非空即视为投票帖）
+            let poll = data.thread.pollInfo
+            pollInfo = (!poll.options.isEmpty || !poll.title.isEmpty) ? poll : nil
             // 记录浏览历史（对齐 Android HistoryUtil.recordThread）
             HistoryStore.record(type: 2, id: "\(threadID)", title: title,
                                 subtitle: forumName, avatar: "")
@@ -298,8 +477,41 @@ struct ThreadPage: View {
                 Text("\(floor)楼")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                Menu {
+                    Button {
+                        UIPasteboard.general.string = post.content.map(\.text).joined()
+                        toast = "已复制楼层内容"
+                    } label: {
+                        Label("复制内容", systemImage: "doc.on.doc")
+                    }
+                    Button {
+                        Task { await report(post) }
+                    } label: {
+                        Label("举报", systemImage: "exclamationmark.bubble")
+                    }
+                    if isMyPost(post) {
+                        Button(role: .destructive) {
+                            Task { await deletePost(post) }
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis").font(.caption)
+                }
+                .foregroundStyle(.secondary)
             }
+            // 图片：点击进查看器
+            let pics = post.content.filter { [3, 20].contains(Int($0.type)) }
+                .compactMap { PbContentView.picURL($0)?.absoluteString }
             PbContentView(contents: post.content)
+                .overlay {
+                    if !pics.isEmpty {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { openPhoto(pics, 0) }
+                    }
+                }
             HStack(spacing: 16) {
                 LikeButton(threadId: threadID, postId: Int64(bitPattern: post.id),
                            isLiked: post.agree.hasAgree_p == 1,
@@ -470,9 +682,9 @@ struct FloorDetailPage: View {
 
 // MARK: - 回复面板
 
-/// 回复/发帖面板（对应 Android `ReplyPage` 的 iOS 精简版）：
+/// 回复/发帖面板（对应 Android `ReplyPage`）：
 /// 走 proto `/c/c/post/add?cmd=309731`（V12_POST 通道）。
-/// threadId 为 0 时表示发新主题贴（发主题还需吧名，当前仅支持回帖场景）。
+/// 含草稿自动保存（500ms 防抖对齐 Android）、表情面板（#(名字)）、小尾巴、安全模式拦截。
 struct ReplySheet: View {
     let threadId: Int64
     let forumId: Int64
@@ -482,40 +694,73 @@ struct ReplySheet: View {
     var subPostId: Int64 = 0
     var replyUserId: Int64 = 0
     var quoteHint: String = ""
+    /// 发新主题贴的标题（threadId==0 时使用）
+    var threadTitle: String = ""
 
     @EnvironmentObject private var appState: AppState
+    @ObservedObject private var prefs = AppPreferences.shared
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    @State private var showEmoticon = false
     @State private var busy = false
     @State private var errorText: String?
+    @State private var draftSaveTask: Task<Void, Never>?
+    @State private var pickerItem: PhotosPickerItem?
+    @State private var uploading = false
+
+    private var draftKey: String {
+        DraftStore.hashKey(threadId: threadId, postId: postId, subPostId: subPostId)
+    }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextEditor(text: $text)
-                        .frame(minHeight: 120)
-                        .disabled(busy)
-                } header: {
-                    Text(quoteHint.isEmpty
-                         ? (threadId == 0 ? "发新主题贴" : "回复")
-                         : "回复 \(quoteHint)")
-                }
-                Section {
-                    Button {
-                        Task { await submit() }
-                    } label: {
-                        if busy {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text("发送").frame(maxWidth: .infinity).bold()
+            VStack(spacing: 0) {
+                Form {
+                    if threadId == 0 {
+                        Section("标题") {
+                            TextField("标题（可选）", text: Binding(
+                                get: { threadTitle },
+                                set: { _ in }))
+                            .disabled(true)
                         }
                     }
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
-                }
-                if let errorText {
                     Section {
-                        Text(errorText).font(.footnote).foregroundStyle(.red)
+                        TextEditor(text: $text)
+                            .frame(minHeight: 120)
+                            .disabled(busy)
+                            .onChange(of: text) { newValue in
+                                scheduleDraftSave(newValue)
+                            }
+                    } header: {
+                        Text(quoteHint.isEmpty
+                             ? (threadId == 0 ? "发新主题贴" : "回复")
+                             : "回复 \(quoteHint)")
+                    } footer: {
+                        if !prefs.littleTail.isEmpty {
+                            Text("将附加小尾巴：\(prefs.littleTail)")
+                        }
+                    }
+                    Section {
+                        Button {
+                            Task { await submit() }
+                        } label: {
+                            if busy {
+                                ProgressView().frame(maxWidth: .infinity)
+                            } else {
+                                Text("发送").frame(maxWidth: .infinity).bold()
+                            }
+                        }
+                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
+                    }
+                    if let errorText {
+                        Section {
+                            Text(errorText).font(.footnote).foregroundStyle(.red)
+                        }
+                    }
+                }
+                if showEmoticon {
+                    EmoticonPanel { code in
+                        text += code
                     }
                 }
             }
@@ -525,7 +770,72 @@ struct ReplySheet: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { dismiss() }
                 }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    PhotosPicker(selection: $pickerItem, matching: .images) {
+                        Image(systemName: "photo")
+                    }
+                    Button {
+                        showEmoticon.toggle()
+                    } label: {
+                        Image(systemName: showEmoticon ? "keyboard" : "face.smiling")
+                    }
+                }
             }
+            .onChange(of: pickerItem) { item in
+                Task { await uploadPicked(item) }
+            }
+            .onAppear {
+                // 恢复草稿（对应 Android LaunchedEffect getDraft）
+                if let draft = DraftStore.get(draftKey), !draft.isEmpty {
+                    text = draft
+                }
+            }
+            .onDisappear {
+                draftSaveTask?.cancel()
+            }
+        }
+    }
+
+    /// 草稿防抖保存（对齐 Android curTextFlow.sample(500)）
+    private func scheduleDraftSave(_ content: String) {
+        draftSaveTask?.cancel()
+        draftSaveTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            DraftStore.save(draftKey, content)
+        }
+    }
+
+    /// 图片上传：PhotosPicker → 压缩 JPEG → uploadPicture → 插入 #(pic,id,w,h)
+    /// （对应 Android ImageUploader + ReplyPage.kt:328 的插入格式）
+    private func uploadPicked(_ item: PhotosPickerItem?) async {
+        guard let item, !uploading else { return }
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let uiImage = UIImage(data: data) else {
+            errorText = "图片读取失败"
+            return
+        }
+        // 压缩到 512KB 以内（Android DEFAULT_CHUNK_SIZE=512000）
+        var jpeg = uiImage.jpegData(compressionQuality: 0.9)
+        var quality: CGFloat = 0.9
+        while (jpeg?.count ?? 0) > 500_000 && quality > 0.2 {
+            quality -= 0.15
+            jpeg = uiImage.jpegData(compressionQuality: quality)
+        }
+        guard let finalData = jpeg, (finalData.count) <= 500_000 else {
+            errorText = "图片过大（>500KB）无法上传"
+            return
+        }
+        uploading = true
+        defer { uploading = false }
+        do {
+            let result = try await ImageUploader.upload(
+                imageData: finalData,
+                width: Int(uiImage.size.width * uiImage.scale),
+                height: Int(uiImage.size.height * uiImage.scale))
+            text += result.contentCode
+        } catch {
+            errorText = "上传失败: \(error.localizedDescription)"
         }
     }
 
@@ -534,21 +844,38 @@ struct ReplySheet: View {
             errorText = "请先登录后再回复"
             return
         }
+        // 安全模式拦截（对应 Android SafeModeInterceptor：写操作全部阻止）
+        if prefs.safeMode {
+            errorText = "安全模式已开启：为保护账号，客户端处于只读状态。可在设置中关闭安全模式。"
+            return
+        }
         busy = true
         defer { busy = false }
         do {
-            let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            _ = try await TiebaExtraEndpoints.addPost(
-                client: .shared,
-                content: content,
-                forumId: "\(forumId)",
-                forumName: forumName,
-                threadId: "\(threadId)",
-                tbs: account.tbs,
-                nameShow: account.name,
-                postId: postId != 0 ? "\(postId)" : nil,
-                subPostId: subPostId != 0 ? "\(subPostId)" : nil,
-                replyUserId: replyUserId != 0 ? "\(replyUserId)" : nil)
+            var content = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // 小尾巴（Android little_tail：自由文本附加）
+            if !prefs.littleTail.isEmpty, !content.contains(prefs.littleTail) {
+                content += "\n\(prefs.littleTail)"
+            }
+            if threadId == 0 {
+                // 发新主题贴（JSON `/c/c/thread/add`，MINI 通道）
+                _ = try await TiebaWriteEndpoints.addThread(
+                    content: content, forumId: "\(forumId)", forumName: forumName,
+                    title: threadTitle, isHide: 1, isTitle: threadTitle.isEmpty ? 1 : 0)
+            } else {
+                _ = try await TiebaExtraEndpoints.addPost(
+                    client: .shared,
+                    content: content,
+                    forumId: "\(forumId)",
+                    forumName: forumName,
+                    threadId: "\(threadId)",
+                    tbs: account.tbs,
+                    nameShow: account.name,
+                    postId: postId != 0 ? "\(postId)" : nil,
+                    subPostId: subPostId != 0 ? "\(subPostId)" : nil,
+                    replyUserId: replyUserId != 0 ? "\(replyUserId)" : nil)
+            }
+            DraftStore.delete(draftKey)
             dismiss()
         } catch {
             errorText = error.localizedDescription

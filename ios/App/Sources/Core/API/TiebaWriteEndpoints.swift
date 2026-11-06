@@ -34,14 +34,15 @@ enum TiebaWriteEndpoints {
     // MARK: - 签到
 
     /// 单吧签到 `/c/c/forum/sign`（official 通道）
-    static func forumSign(forumName: String, forumId: Int64 = 0) async throws {
+    static func forumSign(forumName: String, forumId: Int64 = 0,
+                          fromWidget: String = "0", tbs: String? = nil) async throws {
         guard let account = TiebaJSONClient.shared.accountProvider(),
               !account.uid.isEmpty else { throw TiebaAPIError.notLoggedIn }
         let params: [String: String] = [
             "kw": forumName,
             "fid": "\(forumId)",
-            "tbs": account.tbs,
-            "from_widget": "0",
+            "tbs": tbs ?? account.tbs,
+            "from_widget": fromWidget,
             "_client_version": ClientVersion.v12.rawValue,
             "stoken": account.stoken,
         ]
@@ -222,6 +223,183 @@ enum TiebaWriteEndpoints {
         return try TiebaJSONClient.decode(ThreadStoreResponse.self, from: data)
     }
 
+    // MARK: - 发主题贴（MINI 通道 `/c/c/thread/add`）
+
+    /// 发新主题贴（对应 Android `MiniTiebaApi.addThreadFlow`）
+    /// - Parameters:
+    ///   - isHide: 主页显示（Android 固定传 1）
+    ///   - isTitle: 是否有标题（1=无标题，0=有标题；Android：标题为空则 1）
+    @discardableResult
+    static func addThread(content: String, forumId: String, forumName: String,
+                          title: String, isHide: Int = 1, isTitle: Int) async throws -> Data {
+        guard let account = TiebaJSONClient.shared.accountProvider(),
+              !account.uid.isEmpty else { throw TiebaAPIError.notLoggedIn }
+        let params: [String: String] = [
+            "content": content,
+            "kw": forumName,
+            "fid": forumId,
+            "title": title,
+            "is_hide": "\(isHide)",
+            "is_ntitle": "\(isTitle)",
+            "is_feedback": "0",
+            "reply_uid": "null",
+            "takephoto_num": "0",
+            "z_id": account.zid,
+            "name_show": account.name,
+            "entrance_type": "1",
+            "vcode_tag": "12",
+            "new_vcode": "1",
+            "anonymous": "1",
+            "call_from": "2",
+            "can_no_forum": "0",
+            "cuid_gid": "",
+            "tbs": account.tbs,
+            "stoken": account.stoken,
+            "_client_version": "8.0.8.0",
+        ]
+        return try await TiebaJSONClient.shared.post(path: "/c/c/thread/add",
+                                                     params: params, channel: .mini, forceLogin: true)
+    }
+
+    // MARK: - 删除（official 通道 `/c/c/bawu/delthread` / `/c/c/bawu/delpost`）
+
+    /// 删除主题贴（对应 Android `delThreadFlow`）
+    /// - Parameter delMyThread: 是否删除自己发的贴（决定 delete_my_thread）
+    static func delThread(forumId: Int64, forumName: String, threadId: Int64,
+                          tbs: String, delMyThread: Bool, isHide: Bool = false) async throws {
+        let params: [String: String] = [
+            "fid": "\(forumId)",
+            "word": forumName,
+            "z": "\(threadId)",
+            "tbs": tbs,
+            "src": "1",
+            "is_vipdel": "0",
+            "delete_my_thread": delMyThread ? "1" : "0",
+            "is_frs_mask": isHide ? "1" : "0",
+            "_client_version": ClientVersion.v12.rawValue,
+        ]
+        let data = try await TiebaJSONClient.shared.post(path: "/c/c/bawu/delthread",
+                                                         params: params, channel: .official,
+                                                         forceLogin: true)
+        _ = try TiebaJSONClient.decode(SimpleErrorResponse.self, from: data)
+    }
+
+    /// 删除回复/楼层（对应 Android `delPostFlow`）
+    /// - Parameter delMyPost: 是否删除自己发的回复
+    ///   Android 映射：is_vipdel = delMyPost ? 0 : 1；delete_my_post = delMyPost ? 1 : 0
+    static func delPost(forumId: Int64, forumName: String, threadId: Int64, postId: Int64,
+                        tbs: String, delMyPost: Bool) async throws {
+        let params: [String: String] = [
+            "fid": "\(forumId)",
+            "word": forumName,
+            "z": "\(threadId)",
+            "pid": "\(postId)",
+            "isfloor": "0",
+            "src": "1",
+            "is_vipdel": delMyPost ? "0" : "1",
+            "delete_my_post": delMyPost ? "1" : "0",
+            "tbs": tbs,
+            "_client_version": ClientVersion.v12.rawValue,
+        ]
+        let data = try await TiebaJSONClient.shared.post(path: "/c/c/bawu/delpost",
+                                                         params: params, channel: .official,
+                                                         forceLogin: true)
+        _ = try TiebaJSONClient.decode(SimpleErrorResponse.self, from: data)
+    }
+
+    // MARK: - 举报预检（official 通道 `/c/f/ueg/checkjubao`）
+
+    /// 举报楼层：返回可用于打开举报页的 URL（对应 Android `checkReportPost` + `reportPost`）
+    /// - Parameter postId: 被举报楼层的 pid
+    static func checkReport(postId: String) async throws -> String {
+        guard let account = TiebaJSONClient.shared.accountProvider(),
+              !account.uid.isEmpty else { throw TiebaAPIError.notLoggedIn }
+        let params: [String: String] = [
+            "category": "1",
+            "pid": postId,
+            "stoken": account.stoken,
+            "_client_version": ClientVersion.v12.rawValue,
+        ]
+        let data = try await TiebaJSONClient.shared.post(path: "/c/f/ueg/checkjubao",
+                                                         params: params, channel: .official,
+                                                         forceLogin: true)
+        struct Resp: Decodable {
+            struct D: Decodable { let url: String? }
+            let errno: FlexibleInt?
+            let errmsg: String?
+            let data: D?
+        }
+        let resp = try TiebaJSONClient.decode(Resp.self, from: data)
+        return resp.data?.url ?? ""
+    }
+
+    // MARK: - 禁止互动 / 拉黑（official 通道）
+
+    /// 查询拉黑信息（对应 Android `getUserBlackFlow`）→ perm_list 三项
+    static func getUserBlackInfo(blackUid: Int64) async throws -> PermissionList {
+        guard let account = TiebaJSONClient.shared.accountProvider(),
+              !account.uid.isEmpty else { throw TiebaAPIError.notLoggedIn }
+        let params: [String: String] = [
+            "black_uid": "\(blackUid)",
+            "stoken": account.stoken,
+        ]
+        let data = try await TiebaJSONClient.shared.post(path: "/c/u/user/getUserBlackInfo",
+                                                         params: params, channel: .official,
+                                                         forceLogin: true)
+        struct Resp: Decodable {
+            let error_code: FlexibleInt?
+            let error_msg: String?
+            let perm_list: PermissionList?
+        }
+        let resp = try TiebaJSONClient.decode(Resp.self, from: data)
+        return resp.perm_list ?? PermissionList()
+    }
+
+    /// 设置禁止互动范围（对应 Android `setUserBlackFlow`）
+    static func setUserBlack(blackUid: Int64, tbs: String, perm: PermissionList) async throws {
+        guard let account = TiebaJSONClient.shared.accountProvider(),
+              !account.uid.isEmpty else { throw TiebaAPIError.notLoggedIn }
+        let params: [String: String] = [
+            "black_uid": "\(blackUid)",
+            "tbs": tbs,
+            "perm_list": perm.jsonString(),
+            "stoken": account.stoken,
+            "_client_version": ClientVersion.v12.rawValue,
+        ]
+        let data = try await TiebaJSONClient.shared.post(path: "/c/c/user/setUserBlack",
+                                                         params: params, channel: .official,
+                                                         forceLogin: true)
+        _ = try TiebaJSONClient.decode(SimpleErrorResponse.self, from: data)
+    }
+
+    // MARK: - 修改资料（official 通道 `/c/c/profile/modify`）
+
+    /// 修改个人资料（对应 Android `profileModifyFlow`）
+    /// - Parameters:
+    ///   - birthdayTime: 生日 unix **秒**（Android 用 ms/1000）
+    ///   - sex: 1=男 2=女
+    @discardableResult
+    static func profileModify(nickName: String, intro: String, sex: Int,
+                              birthdayTime: Int64, birthdayShowStatus: Bool) async throws -> Data {
+        guard let account = TiebaJSONClient.shared.accountProvider(),
+              !account.uid.isEmpty else { throw TiebaAPIError.notLoggedIn }
+        let params: [String: String] = [
+            "birthday_show_status": birthdayShowStatus ? "true" : "false",
+            "birthday_time": "\(birthdayTime)",
+            "intro": intro,
+            "sex": "\(sex)",
+            "nick_name": nickName,
+            "stoken": account.stoken,
+            "cam": "",
+            "need_cam_decrypt": "1",
+            "need_keep_nickname_flag": "0",
+            "_client_version": ClientVersion.v12.rawValue,
+        ]
+        return try await TiebaJSONClient.shared.post(path: "/c/c/profile/modify",
+                                                     params: params, channel: .official,
+                                                     forceLogin: true)
+    }
+
     // MARK: - 客户端初始化
 
     /// `/c/s/sync`：换取真实 client_id 与 sample_id（Android `ClientUtils.sync`）
@@ -272,6 +450,7 @@ struct MultiSignResponse: Decodable {
             let forum_name: String?
             let forum_id: FlexibleInt?
             let is_signed: FlexibleInt?
+            let signed: FlexibleString?
         }
         let signedForumInfo: [SignInfo]?
         let signed_forum_info: [SignInfo]?
@@ -327,6 +506,20 @@ struct MsgResponse: Decodable {
     let error_msg: String?
     let no_error: FlexibleString?
     let msg: Msg?
+}
+
+/// 拉黑范围（对应 Android `PermissionListBean`）：0=允许 1=禁止
+struct PermissionList: Codable {
+    var follow: Int = 0     // 禁止关注
+    var interact: Int = 0   // 禁止互动
+    var chat: Int = 0       // 禁止私信
+
+    enum CodingKeys: String, CodingKey { case follow, interact, chat }
+
+    /// Gson 声明序：follow, interact, chat
+    func jsonString() -> String {
+        "{\"follow\":\(follow),\"interact\":\(interact),\"chat\":\(chat)}"
+    }
 }
 
 /// `/c/f/post/threadstore` 响应（对应 Android `ThreadStoreBean`）

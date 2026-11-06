@@ -19,6 +19,10 @@ struct ForumPage: View {
     @State private var isSigning = false
     @State private var path = NavigationPath()
     @State private var toast: String?
+    @State private var showNewPost = false
+    @State private var forumDetailRoute = false
+    @State private var generalTabRoute: GeneralTabListPage.TabInfo?
+    @State private var generalTabs: [Tieba_FrsTabInfo] = []
 
     enum ForumTab: Hashable { case latest, good }
 
@@ -39,7 +43,36 @@ struct ForumPage: View {
         .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                if appState.isLoggedIn {
+                    Button {
+                        showNewPost = true
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
+                }
                 Menu {
+                    if let forum {
+                        Button {
+                            forumDetailRoute = true
+                        } label: {
+                            Label("吧详情", systemImage: "info.circle")
+                        }
+                    }
+                    if !generalTabs.isEmpty {
+                        Menu {
+                            ForEach(generalTabs, id: \.tabID) { t in
+                                Button {
+                                    generalTabRoute = GeneralTabListPage.TabInfo(id: t.tabID,
+                                                                                 name: t.tabName,
+                                                                                 type: t.tabType)
+                                } label: {
+                                    Text(t.tabName)
+                                }
+                            }
+                        } label: {
+                            Label("通用标签", systemImage: "list.bullet")
+                        }
+                    }
                     Button {
                         UIPasteboard.general.string = "https://tieba.baidu.com/f?kw=\(forumName)"
                         toast = "链接已复制"
@@ -53,6 +86,19 @@ struct ForumPage: View {
                     Image(systemName: "ellipsis.circle")
                 }
             }
+        }
+        .navigationDestination(isPresented: $forumDetailRoute) {
+            ForumDetailPage(forumId: forum?.id ?? 0, forumName: forumName)
+        }
+        .navigationDestination(isPresented: Binding(get: { generalTabRoute != nil },
+                                                    set: { if !$0 { generalTabRoute = nil } })) {
+            if let tab = generalTabRoute {
+                GeneralTabListPage(forumId: forum?.id ?? 0, forumName: forumName, tab: tab)
+            }
+        }
+        .sheet(isPresented: $showNewPost) {
+            ReplySheet(threadId: 0, forumId: forum?.id ?? 0, forumName: forumName,
+                       threadTitle: "")
         }
         .overlay(alignment: .bottom) {
             if let toast {
@@ -157,6 +203,7 @@ struct ForumPage: View {
             threads = data.threadList.filter { !$0.isLive }
             hasMore = data.page.hasMore_p != 0
             errorText = nil
+            generalTabs = data.navTabInfo.tab.filter { $0.isGeneralTab == 1 }
             // 记录浏览历史（type 1=吧）
             HistoryStore.record(type: 1, id: forumName, title: forumName,
                                 subtitle: "", avatar: data.forum.avatar)

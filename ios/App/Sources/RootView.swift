@@ -25,6 +25,12 @@ struct RootView: View {
                 .tabItem { Label("我的", systemImage: "person.crop.circle") }
                 .tag(3)
         }
+        .modifier(ClipBoardLinkDialog())
+        .task {
+            // 启动时请求通知权限并拉一次未读（对应 Android NotifyJobService 的轻量替代）
+            _ = await NotifyScheduler.requestPermission()
+            await NotifyScheduler.pollOnce()
+        }
     }
 }
 

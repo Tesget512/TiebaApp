@@ -20,9 +20,26 @@ Android 版共用同一套贴吧协议（protobuf 端点、签名算法、设备
 | 回复/点赞/收藏 | ✅ 需登录 | POST `/c/c/post/add`、JSON `/c/c/agree/opAgree`、`/c/c/post/addstore` |
 | 用户主页+关注/取关 | ✅ | protobuf `/c/u/user/profile` + JSON `/c/c/user/follow` |
 | TA 的主题贴/回复 | ✅ | protobuf `/c/u/feed/userpost?cmd=303002` |
-| 搜索（联想+帖子） | ✅ 真实数据 | protobuf `searchSug` + JSON `/c/s/searchpost` |
-| 通知（回复/@/赞） | ✅ 需登录 | JSON NEW 通道 `/c/u/feed/replyme|atme|agreeme` |
-| 浏览历史/我的收藏 | ✅ 本地+云端 | 本地 UserDefaults + JSON `/c/f/post/threadstore` |
+| 关注/粉丝列表 | ✅ | JSON `/c/u/follow/followList`、`/c/u/fans/page` |
+| 吧详情/吧规/通用标签 | ✅ | protobuf `getforumdetail 303021` / `forumRuleDetail 309690` / `generalTabList 309622`(V12_POST) |
+| 热议话题列表+详情 | ✅ | protobuf `topicList 309289` + hybrid GET `/mo/q/newtopic/topicDetail` |
+| 发言分析（月/时段/吧/词频） | ✅ | 基于 userpost 多页聚合 |
+| 发主题贴/回复/楼中楼回复 | ✅ 需登录 | JSON `/c/c/thread/add` + proto `/c/c/post/add 309731` |
+| 图片上传（≤512KB 自动压缩） | ✅ 需登录 | `/c/s/uploadPicture` 多分片协议单分片版 |
+| 投票 | ✅ 需登录 | proto `/c/c/post/addPollPost 309006`(V12_POST) |
+| 删除主题贴/回复 | ✅ 需登录 | JSON `/c/c/bawu/delthread` / `delpost` |
+| 举报 | ✅ 需登录 | `checkjubao` 预检 → 内置 WebView |
+| 禁止互动（拉黑范围） | ✅ 需登录 | `/c/c/user/setUserBlack` + `getUserBlackInfo` |
+| 修改资料 | ✅ 需登录 | `/c/c/profile/modify` |
+| 收藏 | ✅ 需登录 | `/c/c/post/addstore` / `rmstore` / `/c/f/post/threadstore` |
+| 一键签到（msign 全流程） | ✅ 需登录 | `getforumlist` → `msign` → 单签兜底（from_widget=1） |
+| 安全模式/无痕模式/屏蔽（黑白名单+正则） | ✅ | 本地拦截 + 关键词/用户过滤 |
+| 表情面板/草稿自动保存/小尾巴 | ✅ | `#(名字)` 插入 + 500ms 防抖 + 提交附加 |
+| 图片查看器（缩放/保存/分享） | ✅ | 楼层图片全屏翻页 |
+| 深色模式/自定义主色/字体 6 档 | ✅ | 设置中心（对应 Android 主题系统的 iOS 子集） |
+| App 图标切换（3 款） | ✅ | `setAlternateIconName` + 备选图标 |
+| 剪贴板链接检测/本地通知未读 | ✅ | 10s 节流 + `/c/s/msg` 前台轮询 |
+| 多账号管理 | ✅ | Keychain 账号数组 + 当前 uid 切换 |
 | 登录（BDUSS） | ✅ | WKWebView wappass → `/c/s/login` |
 
 ## 构建

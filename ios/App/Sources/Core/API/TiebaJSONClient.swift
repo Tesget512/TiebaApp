@@ -152,6 +152,80 @@ final class TiebaJSONClient {
             throw TiebaAPIError.decoding(error)
         }
     }
+
+    /// 热议话题详情 `GET /mo/q/newtopic/topicDetail`（HYBRID 通道 https://tieba.baidu.com）
+    /// 对应 Android `AppHybridTiebaApi.topicDetail`（query：topic_id/topic_name/is_new=1/
+    /// is_share=1/pn/rn=10/offset/last_id/derivative_to_pic_id=""）
+    func getTopicDetail(topicId: String, topicName: String,
+                        page: Int, offset: Int, lastId: String) async throws -> TopicDetailResponse {
+        var comps = URLComponents(string: "https://tieba.baidu.com/mo/q/newtopic/topicDetail")!
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "topic_id", value: topicId),
+            URLQueryItem(name: "topic_name", value: topicName),
+            URLQueryItem(name: "is_new", value: "1"),
+            URLQueryItem(name: "is_share", value: "1"),
+            URLQueryItem(name: "pn", value: "\(page)"),
+            URLQueryItem(name: "rn", value: "10"),
+            URLQueryItem(name: "offset", value: "\(offset)"),
+            URLQueryItem(name: "last_id", value: lastId),
+            URLQueryItem(name: "derivative_to_pic_id", value: ""),
+        ]
+        comps.queryItems = items
+        _ = items.popLast()
+        var req = URLRequest(url: comps.url!)
+        req.httpMethod = "GET"
+        req.setValue("tieba/12.35.1.0 skin/default", forHTTPHeaderField: "User-Agent")
+        req.setValue("com.baidu.tieba", forHTTPHeaderField: "X-Requested-With")
+        req.setValue(AccountUtil.cookieHeader(), forHTTPHeaderField: "Cookie")
+        let (data, response) = try await session.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw TiebaAPIError.httpStatus(http.statusCode)
+        }
+        return try TiebaJSONClient.decode(TopicDetailResponse.self, from: data)
+    }
+}
+
+// MARK: - 话题详情响应模型（对应 Android `TopicDetailBean`）
+
+struct TopicDetailResponse: Decodable {
+    struct ThreadItem: Decodable {
+        let feed_id: FlexibleInt?
+        let thread_info: ThreadInfo?
+    }
+    struct ThreadInfo: Decodable {
+        let id: FlexibleInt?
+        let title: String?
+        let tid: FlexibleInt?
+        let forum_id: FlexibleInt?
+        let forum_name: String?
+        let abstract: String?
+        let agree_num: FlexibleInt?
+        let reply_num: FlexibleInt?
+        let user_id: FlexibleInt?
+        let author: Author?
+    }
+    struct Author: Decodable {
+        let id: FlexibleInt?
+        let name: String?
+        let name_show: String?
+        let portrait: String?
+    }
+    struct TopicInfo: Decodable {
+        let topic_id: String?
+        let topic_name: String?
+        let topic_desc: String?
+        let discuss_num: FlexibleInt?
+        let topic_image: String?
+    }
+    struct Data: Decodable {
+        let topic_info: TopicInfo?
+        struct RelateThread: Decodable { let thread_list: [ThreadItem]? }
+        let relate_thread: RelateThread?
+        let has_more: Bool?
+    }
+    let no: FlexibleInt?
+    let error: String?
+    let data: Data?
 }
 
 /// 贴吧 JSON 响应错误探测（`error_code` 可能是字符串或数字）

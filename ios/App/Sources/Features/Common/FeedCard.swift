@@ -149,10 +149,22 @@ struct ThreadListView: View {
     var onOpenThread: (Tieba_ThreadInfo) -> Void
     /// 是否在末尾展示"加载更多"（由外部 `onLoadMore` 驱动）
     var onLoadMore: (() async -> Void)?
+    @ObservedObject private var prefs = AppPreferences.shared
+    @ObservedObject private var blocker = BlockManager.shared
+
+    /// 应用屏蔽（对应 Android ThreadInfo.shouldBlock + hideBlockedContent）
+    private var visibleThreads: [Tieba_ThreadInfo] {
+        guard !blocker.blocks.isEmpty else { return threads }
+        let filtered = threads.filter { t in
+            !blocker.shouldBlockThread(title: t.title, abstract: t.abstractText,
+                                       authorId: t.author.id, authorName: t.author.name)
+        }
+        return prefs.hideBlockedContent ? filtered : threads
+    }
 
     var body: some View {
         LazyVStack(spacing: 0) {
-            ForEach(threads, id: \.tid) { t in
+            ForEach(visibleThreads, id: \.tid) { t in
                 Button { onOpenThread(t) } label: {
                     FeedCard(thread: t)
                 }

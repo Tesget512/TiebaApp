@@ -19,3 +19,15 @@ struct Account: Codable, Equatable {
         return URL(string: "http://tb.himg.baidu.com/sys/portrait/item/\(portrait)")
     }
 }
+
+/// Web/JSON 通道的 Cookie 头工具（对应 Android `AccountUtil` 的 cookie 构造）
+enum AccountUtil {
+    /// 当前账号的 web cookie：`BDUSS=...; STOKEN=...`（无账号则返回空）
+    static func cookieHeader() -> String {
+        guard let a = TiebaJSONClient.shared.accountProvider() else { return "" }
+        var parts: [String] = []
+        if !a.bduss.isEmpty { parts.append("BDUSS=\(a.bduss)") }
+        if !a.stoken.isEmpty { parts.append("STOKEN=\(a.stoken)") }
+        return parts.joined(separator: "; ")
+    }
+}

@@ -116,3 +116,73 @@
   系统通知（NotifyJobService）、App 图标切换、剪贴板链接检测、字体大小、
   发言分析（词云统计）、关注/粉丝列表页、吧详情页（吧务/等级/会员信息）、
   吧规页、通用标签页、热议话题详情、多账号管理、webview 内嵌浏览。
+
+## 2026-11-06 P9 遗留功能全量补全 + App Icon ✅
+
+- **审计与协议提取**：3 个 Explore 子代理并行提取 Android 精确协议
+  （写操作/阅读页/设置与服务三路），主智能体亲核 addThread（MiniTiebaApi.kt:424-449
+  全部 22 个字段默认值）、setUserBlack/getUserBlackInfo（PermissionListBean JSON 序）、
+  profileModify（9 字段）、delThread/delPost（src/is_vipdel/delete_my_* 映射）、
+  OKSigner 全流程（msign 等级阈值+msignStepNum 上限+from_widget=1+慢速 3500-8000ms）、
+  GeneralTabList 23 字段（V12_POST 通道）、TopicDetail（HYBRID GET 9 参数）、
+  BlockManager（白名单优先/关键词+用户/正则）、草稿 hash（threadId_postId_subPostId MD5）、
+  EmoticonManager（#(名字) 插入格式 + static.tieba.baidu.com 图片源）、
+  剪贴板检测（10s 节流 + tieba 域名 + /p/ 与 /f?kw= 解析）。
+- **App Icon**：复用 Android `ic_launcher_new_foreground`（432px）+ colors.xml 背景色
+  合成 1024px iOS 图标（PIL 脚本），主图标 + 反色/旧版两个备选
+  （对应 Android LauncherIcons 的 NEW/INVERT/OLD）；
+  Info.plist 注册 `CFBundleAlternateIcons`；`AppIconManager` 走
+  `UIApplication.setAlternateIconName`；设置页可切换。
+- **写操作端点**：`TiebaWriteEndpoints` 新增 addThread（发主题贴）/delThread/delPost/
+  checkReport（举报预检→URL）/getUserBlackInfo/setUserBlack（拉黑三开关）/
+  profileModify（改资料）；`OKSigner.swift` 一键签到全流程（getforumlist 配置 →
+  msign 批量 → 单签兜底 → 失败中止开关 → 进度回调）。
+- **阅读页**：`ReadingPages.swift`（吧详情 ForumDetailPage / 吧规 ForumRulePage /
+  热议列表 TopicListPage / 热议详情 TopicDetailPage（含 HYBRID GET 客户端）/
+  关注·粉丝列表 FollowListView / 他人关注吧 UserLikeForumListPage）；
+  `AnalysisPages.swift`（发言分析：按月/时段/吧 TOP10/高频词 2-3gram 词频 + 保存/分享
+  图片查看器 PhotoViewPage + 双指缩放 + 相册保存）。
+- **设置中心**：`SettingsView`（安全模式/无痕/主题/深色/字体 6 档/屏蔽/一键签到设置/
+  关于 7 连击彩蛋/账号管理含小尾巴）；`AppPreferences`（对应 Android
+  AppPreferencesUtils 键名）；`BlockManager`（黑/白名单+正则+用户，UserDefaults 持久化，
+  ThreadListView 应用过滤）。
+- **体验补全**：ReplySheet 增强（草稿 500ms 防抖/表情面板#(名字)/小尾巴附加/安全模式
+  拦截）；ThreadPage 楼层菜单（复制/举报/删除自己楼层）+ 图片点击查看器 + 主题贴
+  删除/举报；ForumPage 发帖按钮 + 吧详情入口；RootView 剪贴板链接检测弹窗 +
+  启动时通知权限请求与未读本地通知（Android NotifyJobService 的前台轻量替代）；
+  UserProfilePage 关注/粉丝/TA的吧/发言分析/拉黑入口。
+- **验收**：`** BUILD SUCCEEDED **` + `** TEST SUCCEEDED **` **33/33 全过**
+  （新增 吧详情/吧规/通用标签 3 个真实网络冒烟）；模拟器启动正常（发现页渲染 +
+  系统通知权限弹窗出现，验证通知调度已接入）；App 图标编译验证
+  （AppIcon60x60@2x 内容正确 + 备选图标注册）；adhoc ipa 2.5M 验收全过
+  （Signature=adhoc / TeamIdentifier=not set / 无 mobileprovision / strict 通过）。
+
+### P9b 追加补全（同日）
+
+- **多账号管理**：`AccountStore` 改造为账号数组（Keychain "accounts" + UserDefaults
+  "tieba.currentUid"，对齐 Android Room account 表 + accountData.now）；
+  `AppState` 新增 `allAccounts`/`switchAccount`/按 uid 退出；
+  `AccountManageView` 升级为账号列表（切换勾选/添加账号/退出当前/复制 BDUSS/小尾巴）。
+- **WebViewPage**（对应 Android WebViewPage）：WKWebView + 登录 cookie 注入
+  （.baidu.com 域 BDUSS/STOKEN）+ 复制链接/分享/刷新；**举报**从系统浏览器改为内置页。
+- **修改资料** `EditProfilePage`（昵称/简介≤500/性别 1男2女，对齐
+  EditProfileViewModel 字段映射；生日按服务端默认传 0）。
+- **通用标签** `GeneralTabListPage`（V12_POST 通道 generalTabList 23 字段对齐；
+  吧页菜单 → navTabInfo 的 isGeneralTab=1 项 → 帖子流分页）。
+- **图片上传**：`ImageUploader.upload`（/c/s/uploadPicture 单分片版，≤512KB 自动
+  JPEG 压缩；字段 alt/chunkNo/groupId/height/isFinish/is_bjh/pic_water_type/resourceId/
+  saveOrigin/size/width + 文件 part `chunk`，1:1 对照 ImageUploader.kt:141-157）；
+  回复面板 PhotosPicker 选图 → 上传成功插入 `#(pic,id,w,h)`（ReplyPage.kt:328 格式）。
+- **投票**：ThreadPage 投票组件（选项多选 → options 逗号分隔 → V12_POST
+  `/c/c/post/addPollPost?cmd=309006`，对齐 ThreadPage.kt:1700 与 MixedTiebaApiImpl:1728）；
+  PbPage 响应 thread.poll_info 解析。
+- **平台差异说明（如实记录）**：
+  - Android 后台 AlarmManager 定时签到 → iOS 仅前台"立即一键签到"+每日时间设置
+    （iOS 无常驻后台执行权限，语义等价降级）；
+  - Android NotifyJobService 30min 后台轮询 → iOS 启动/前台时拉一次未读并发本地通知；
+  - Android 半透明壁纸主题/动态取色（Monet）→ iOS 提供深浅色 + 自定义主色（iOS 无
+    等价 Monet API）；
+  - 小尾巴在 Android 端仅存储未接线（grep 全库无追加逻辑）——iOS 端直接接到
+    ReplySheet 提交（超出 Android 行为，已注明）；
+  - Android ImageUploader 大图分片（>512KB 多 chunk）→ iOS 仅单分片（≤512KB 自动压缩），
+    完整分片协议留待后续。

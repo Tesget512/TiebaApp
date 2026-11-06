@@ -14,4 +14,9 @@ enum AppRoute: Hashable {
     case store        // 我的收藏（ThreadStorePage）
     case history      // 浏览历史（HistoryPage）
     case userPosts(uid: Int64, name: String, isThread: Bool) // TA 的帖子
+    case topicList    // 热议话题列表
+    case topicDetail(id: String, name: String)               // 热议话题详情
+    case forumDetail(id: Int64, name: String)                // 吧详情
+    case analysis(uid: Int64, name: String)                  // 发言分析
+    case photoView(urls: [String], index: Int)               // 图片查看器
 }

@@ -130,4 +130,47 @@ final class NetworkSmokeTests: XCTestCase {
             XCTAssertTrue(data.historyForum.allSatisfy { !$0.forumName.isEmpty })
         }
     }
+
+    /// V12 免签通道：吧详情（用吧页返回的 forum id）
+    func testForumDetail() async throws {
+        let client = TiebaAPIClient()
+        let frs = try await TiebaEndpoints.frsPage(client: client, forumName: "李毅",
+                                                   page: 1, sortType: 0, isGood: false)
+        XCTAssertNotEqual(frs.forum.id, 0)
+        let data = try await TiebaExtraEndpoints.forumDetailInfo(client: client, forumId: frs.forum.id)
+        XCTAssertTrue(data.hasForumInfo, "吧详情应返回 forum_info")
+        XCTAssertFalse(data.forumInfo.forumName.isEmpty)
+        Self.record("forumDetail=\(data.forumInfo.forumName)")
+    }
+
+    /// V12 免签通道：吧规（无吧规的吧返回 error，允许跳过）
+    func testForumRule() async throws {
+        let client = TiebaAPIClient()
+        let frs = try await TiebaEndpoints.frsPage(client: client, forumName: "李毅",
+                                                   page: 1, sortType: 0, isGood: false)
+        guard let data = try? await TiebaExtraEndpoints.forumRule(client: client,
+                                                                  forumId: frs.forum.id),
+              !data.rules.isEmpty else {
+            Self.record("forumRule=skipped(no rule)")
+            return
+        }
+        XCTAssertFalse(data.title.isEmpty)
+        Self.record("forumRule=\(data.rules.count)")
+    }
+
+    /// V12_POST 免签通道：通用标签（需吧页有 generalTab，无则跳过）
+    func testGeneralTabList() async throws {
+        let client = TiebaAPIClient()
+        let frs = try await TiebaEndpoints.frsPage(client: client, forumName: "原神",
+                                                   page: 1, sortType: 0, isGood: false)
+        guard let tab = frs.navTabInfo.tab.first(where: { $0.isGeneralTab == 1 }) else {
+            Self.record("generalTab=skipped(no tab)")
+            return
+        }
+        let data = try await TiebaExtraEndpoints.generalTabList(
+            client: client, tabId: tab.tabID, forumId: frs.forum.id,
+            page: 1, tabName: tab.tabName, sortType: 0, tabType: Int(tab.tabType))
+        Self.record("generalTab=\(data.generalList.count)")
+        XCTAssertTrue(data.generalList.allSatisfy { $0.tid != 0 })
+    }
 }

@@ -122,6 +122,72 @@ enum TiebaExtraEndpoints {
         return resp.data
     }
 
+    // MARK: - 吧详情（`/c/f/forum/getforumdetail?cmd=303021`，V12 免签通道）
+
+    static func forumDetailInfo(client: TiebaAPIClient, forumId: Int64) async throws -> Tieba_GetForumDetail_GetForumDetailResponseData {
+        var data = Tieba_GetForumDetail_GetForumDetailRequestData()
+        data.common = CommonRequestBuilder.buildV12(account: client.accountProvider())
+        data.forumID = forumId
+        var req = Tieba_GetForumDetail_GetForumDetailRequest()
+        req.data = data
+        let resp: Tieba_GetForumDetail_GetForumDetailResponse = try await client.request(
+            path: "/c/f/forum/getforumdetail", cmd: 303021,
+            requestData: req, responseType: Tieba_GetForumDetail_GetForumDetailResponse.self)
+        return resp.data
+    }
+
+    // MARK: - 吧规（`/c/f/forum/forumRuleDetail?cmd=309690`，V12 免签通道）
+
+    static func forumRule(client: TiebaAPIClient, forumId: Int64) async throws -> Tieba_ForumRuleDetail_ForumRuleDetailResponseData {
+        var data = Tieba_ForumRuleDetail_ForumRuleDetailRequestData()
+        data.common = CommonRequestBuilder.buildV12(account: client.accountProvider())
+        data.forumID = forumId
+        var req = Tieba_ForumRuleDetail_ForumRuleDetailRequest()
+        req.data = data
+        let resp: Tieba_ForumRuleDetail_ForumRuleDetailResponse = try await client.request(
+            path: "/c/f/forum/forumRuleDetail", cmd: 309690,
+            requestData: req, responseType: Tieba_ForumRuleDetail_ForumRuleDetailResponse.self)
+        return resp.data
+    }
+
+    // MARK: - 通用标签（`/c/f/frs/generalTabList?cmd=309622`，V12_POST 免签通道）
+
+    static func generalTabList(client: TiebaAPIClient, tabId: Int32, forumId: Int64,
+                               page: Int, tabName: String, sortType: Int,
+                               tabType: Int, lastThreadId: Int64 = 0) async throws -> Tieba_GeneralTabList_GeneralTabListResponseData {
+        var data = Tieba_GeneralTabList_GeneralTabListRequestData()
+        data.common = CommonRequestBuilder.buildV12(account: client.accountProvider())
+        data.tabID = tabId
+        data.forumID = forumId
+        data.pn = Int32(page)
+        data.rn = 30
+        data.scrW = Int32(UIScreenCompat.width)
+        data.scrH = Int32(UIScreenCompat.height)
+        data.scrDip = Int32(UIScreenCompat.density)
+        data.lastThreadID = lastThreadId
+        data.isDefaultNavtab = 0
+        data.tabName = tabName
+        data.isGeneralTab = 1
+        data.sortType = Int32(sortType)
+        data.tabType = Int32(tabType)
+        data.adExtParams = ""
+        data.adBearContext = ""
+        data.hasAdBear_p = 0
+        data.adBearSid = ""
+        data.adBearSidPrice = 0
+        data.requestTimes = 0
+        data.frsCommonInfo = ""
+        data.isNewfrs = 1
+        data.isVideoDoublerow = 0
+        var req = Tieba_GeneralTabList_GeneralTabListRequest()
+        req.data = data
+        let resp: Tieba_GeneralTabList_GeneralTabListResponse = try await client.request(
+            path: "/c/f/frs/generalTabList", cmd: 309622,
+            requestData: req, responseType: Tieba_GeneralTabList_GeneralTabListResponse.self,
+            channel: TiebaAPIClient.v12Post)
+        return resp.data
+    }
+
     // MARK: - 回复 / 发帖（`/c/c/post/add?cmd=309731&format=protobuf`，V12_POST 免签通道）
 
     /// 回复楼层 / 楼中楼 / 发主题贴。

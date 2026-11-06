@@ -37,6 +37,9 @@ struct ExploreView: View {
                         Button { path.append(AppRoute.hot) } label: {
                             Label("热榜", systemImage: "flame")
                         }
+                        Button { path.append(AppRoute.topicList) } label: {
+                            Label("热议话题", systemImage: "flame.fill")
+                        }
                         Button { path.append(AppRoute.concern) } label: {
                             Label("关注动态", systemImage: "person.2")
                         }
@@ -114,6 +117,16 @@ struct RouteView: View {
             HistoryPageView()
         case .userPosts(let uid, let name, let isThread):
             UserPostListPage(uid: uid, name: name, isThread: isThread)
+        case .topicList:
+            TopicListPage()
+        case .topicDetail(let id, let name):
+            TopicDetailPage(topicId: id, topicName: name)
+        case .forumDetail(let id, let name):
+            ForumDetailPage(forumId: id, forumName: name)
+        case .analysis(let uid, let name):
+            PostAnalysisPage(uid: uid, name: name)
+        case .photoView(let urls, let index):
+            PhotoViewPage(urls: urls, initialIndex: index)
         }
     }
 }

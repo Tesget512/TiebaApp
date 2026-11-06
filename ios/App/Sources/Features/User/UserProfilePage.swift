@@ -38,6 +38,12 @@ struct UserProfilePage: View {
                     }
             }
         }
+        .alert("拉黑范围", isPresented: $showBlackDialog) {
+            Button("保存") { Task { await saveBlackInfo() } }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("禁止 TA 关注 / 互动 / 私信（perm_list 将提交到 setUserBlack）")
+        }
         .task { await load() }
     }
 
@@ -68,7 +74,7 @@ struct UserProfilePage: View {
                 .frame(maxWidth: .infinity)
             }
 
-            // 操作区（对齐 Android：关注/取关、TA的帖子）
+            // 操作区（对齐 Android：关注/取关、TA的帖子、互动分析）
             Section {
                 NavigationLink {
                     UserPostListPage(uid: uid, name: displayName(data), isThread: true)
@@ -79,6 +85,33 @@ struct UserProfilePage: View {
                     UserPostListPage(uid: uid, name: displayName(data), isThread: false)
                 } label: {
                     Label("TA 的回复", systemImage: "bubble.right")
+                }
+                NavigationLink {
+                    FollowListView(isFollow: true, uid: uid)
+                } label: {
+                    Label("关注 \(shortNum(Int64(data.user.concernNum)))", systemImage: "person.badge.plus")
+                }
+                NavigationLink {
+                    FollowListView(isFollow: false, uid: uid)
+                } label: {
+                    Label("粉丝 \(shortNum(Int64(data.user.fansNum)))", systemImage: "person.2")
+                }
+                NavigationLink {
+                    UserLikeForumListPage(uid: uid)
+                } label: {
+                    Label("TA 关注的吧", systemImage: "square.grid.2x2")
+                }
+                NavigationLink {
+                    PostAnalysisPage(uid: uid, name: displayName(data))
+                } label: {
+                    Label("发言分析", systemImage: "chart.bar")
+                }
+                if !isSelfProfile {
+                    Button {
+                        Task { await loadBlackInfo() }
+                    } label: {
+                        Label("禁止互动范围", systemImage: "nosign")
+                    }
                 }
             }
 
@@ -131,6 +164,34 @@ struct UserProfilePage: View {
     private var isSelfProfile: Bool { uid == selfUid }
     /// Android User.has_concerned = 1 表示已关注
     private var isFollowing: Bool { data?.user.hasConcerned_p == 1 }
+
+    // MARK: 拉黑（对应 Android PermissionSettingDialog + setUserBlack）
+
+    @State private var showBlackDialog = false
+    @State private var perm = PermissionList()
+    @State private var permLoaded = false
+
+    private func loadBlackInfo() async {
+        guard appState.isLoggedIn else { toast = "请先登录"; return }
+        do {
+            perm = try await TiebaWriteEndpoints.getUserBlackInfo(blackUid: uid)
+            permLoaded = true
+            showBlackDialog = true
+        } catch {
+            toast = error.localizedDescription
+        }
+    }
+
+    private func saveBlackInfo() async {
+        guard let account = appState.account else { return }
+        if AppPreferences.shared.safeMode { toast = "安全模式已开启，写操作被拦截"; return }
+        do {
+            try await TiebaWriteEndpoints.setUserBlack(blackUid: uid, tbs: account.tbs, perm: perm)
+            toast = "已保存拉黑范围"
+        } catch {
+            toast = error.localizedDescription
+        }
+    }
 
     private func displayName(_ data: Tieba_Profile_ProfileResponseData) -> String {
         data.user.nameShow.isEmpty ? data.user.name : data.user.nameShow
