@@ -75,3 +75,44 @@
 - ios/README.md：构建说明、功能状态、协议要点、测试说明
 - 任务闭环：P0 计划书 → P1 工具链 → P2 proto → P3 骨架 → P4a 指纹 → P4b 协议 →
   P5 UI → P6 ipa，全部阶段记录在案
+
+## 2026-11-06 P8 功能对齐补全 ✅（Android 主分支功能面差距审计 + 补全）
+
+- **审计方法**：Explore 子代理产出 Android 全量功能清单（`ui/page/**` 全部屏幕、
+  `api/interfaces/**` 全部端点、写操作、设置、持久化、服务/接收器、登录），
+  主智能体逐行亲核 `RetrofitTiebaApi.kt` / `MiniTiebaApi.kt` / `NewTiebaApi.kt` /
+  `OfficialTiebaApi.kt` / `StParamInterceptor.kt` / `CommonParamInterceptor.kt` /
+  `ProtobufRequest.kt` / `SortAndSignInterceptor.kt` / `Enums.kt(HttpConstant)`。
+- **关键协议发现（此前 iOS 缺失）**：热榜/关注动态/热议/进吧推荐走的
+  `OFFICIAL_PROTOBUF_TIEBA_API` 通道，其 `CommonParamInterceptor` 会把
+  `_client_version=12.52.1.0` 等公共参数**注入为 multipart part** → 信封含
+  `_client_version` → **必须签名**（与 V12 免签通道不同）。part 顺序为
+  「非文件 part 按 name 升序 → sign → data(file)」（SortAndSignInterceptor 重排逻辑）。
+- **协议层补全**：
+  - `ProtobufEnvelope.build` 新增 `commonParts` 参数，实现签名通道信封
+  - `TiebaAPIClient` 新增 `Channel.signed` + `signedV12` + `signedChannelParts`
+  - 新文件 `TiebaExtraEndpoints.swift`：hotThreadList(309661)、userLike(309474)、
+    topicList(309289)、forumRecommend(303011)、userPost(303002)、historyForum(309601)、
+    addPost(309731, V12_POST)
+  - `TiebaWriteEndpoints` 扩展：unreadCount(`/c/s/msg`)、likeForum/unlikeForum、
+    followUser/unfollowUser、addStore/removeStore、threadStore
+  - `TiebaJSONClient` 补齐 Android `defaultCommonParamInterceptor` 公共参数
+    （BDUSS/_client_id/_client_type/_os_version/model/net_type/_phone_imei/timestamp）
+- **UI 补全**：新文件 `ExplorePages.swift`（热榜 HotPage / 关注动态 ConcernPage /
+  进吧 HomeFeedPage / 收藏 ThreadStorePage / 浏览历史 HistoryPageView / 用户帖子
+  UserPostListPage）；`HistoryStore`（本地浏览历史）；`AppRoute` 新增 6 个路由；
+  帖子页新增「⋯」菜单（收藏/复制链接/分享/只看楼主）+ 回复面板 `ReplySheet`；
+  楼中楼页支持回复；用户页新增关注/取关 + TA 的主题贴/回复入口；吧页新增分享菜单。
+- **验收**：`** BUILD SUCCEEDED **` + `** TEST SUCCEEDED **`，**30/30 测试全过**
+  （新增 7 个：签名通道 part 顺序、无签名回归、热榜、热议、进吧推荐、用户帖子、浏览吧；
+  网络冒烟全部命中真实贴吧接口并断言实质内容）。模拟器截图验收：发现页、热榜页
+  （真实 1-6 名榜单）渲染正常。
+- **adhoc ipa**：`ios/build/TiebaLite-adhoc.ipa`（1.9M），验收全过
+  （Signature=adhoc / TeamIdentifier=not set / 无 embedded.mobileprovision / strict 通过）。
+- **遗留（未对齐 Android 的深度功能，列入后续迭代）**：
+  发主题贴/投票帖/图片上传、删除主题贴/回复、举报、禁止互动（拉黑）、修改资料、
+  安全模式（Android fork 特色：读-only 拦截器）、主题引擎（自定义主色/动态取色/深色模式/
+  半透明壁纸）、表情面板、草稿自动保存、小尾巴、一键签到服务与定时任务、
+  系统通知（NotifyJobService）、App 图标切换、剪贴板链接检测、字体大小、
+  发言分析（词云统计）、关注/粉丝列表页、吧详情页（吧务/等级/会员信息）、
+  吧规页、通用标签页、热议话题详情、多账号管理、webview 内嵌浏览。

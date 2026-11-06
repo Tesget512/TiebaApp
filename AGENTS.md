@@ -34,7 +34,13 @@
 
 - **签名**：`sign = MD5(参数名排序后 name=value 无分隔符拼接 + "tiebaclient!!!")`。
   - protobuf V12/V12_POST/V22 请求的 multipart **不含 `_client_version` part** → 这类请求**不加 sign**；
-  - JSON/Form 请求含 `_client_version` → 必加 sign（form 最后一个字段）。
+  - **签名 protobuf 通道**（`OFFICIAL_PROTOBUF_TIEBA_API`，热榜/关注动态/热议/进吧推荐）：
+    `CommonParamInterceptor` 把 `_client_version=12.52.1.0` 等公共参数**注入为 multipart
+    part** → 信封含 `_client_version` → **必须签名**；签名后非文件 part 按 name 升序
+    重排 → sign → data(file)（SortAndSignInterceptor 的移除重排逻辑）；
+  - JSON/Form 请求含 `_client_version` → 必加 sign（form 最后一个字段）；
+  - 参数 wire 名（`api/HttpConstant.kt` Param）：`_client_type`/`_os_version`/`_client_id`/
+    `_phone_imei`/`_client_version`（带下划线前缀），其余 `cuid`/`model`/`timestamp` 等不带。
 - **multipart**：boundary 固定 `--------7da3d81520810*`；part 顺序 `stoken?` → `data`
   （filename=`file`）；part 一律不带 Content-Type。
 - **API 端点→客户端实例映射**见 `ios/docs/IOS_PLAN.md §2`（V12 读接口、V22 楼中楼、
@@ -58,6 +64,15 @@
   一键脚本 `ios/scripts/build_ipa.sh` → `build/TiebaLite-adhoc.ipa`。
 - proto 重新生成：`ios/scripts/generate_protos.sh`（protoc-gen-swift 1.28.2 +
   dedup 同名文件 + 删除多余 import），产物不手改。
+- **SwiftProtobuf 生成名冲突**：proto 字段 `has_more`/`has_agree`/`has_plist`/
+  `has_concerned` 生成后带 `_p` 后缀（`hasMore_p` 等）——SwiftProtobuf 为避开自身
+  `has` 前缀访问器保留字。写代码前先 grep 生成物确认真实字段名。
+- **模拟器 UI 自动化**：本机无 idb/idb-companion，MCP ios_ui_* 不可用。页面级视觉
+  验收可用 `SIMCTL_CHILD_<ENV>` 环境变量 + `xcrun simctl launch` 注入启动参数
+  （需 App 侧临时支持，验收后移除）。
+- **Android 端功能面基准**：子代理全量清单 + 亲核结论见
+  `ios/docs/PROGRESS.md` P8 节「遗留」列表——这是 iOS 端尚未对齐的 Android
+  深度功能清单（发帖/管理操作/主题引擎/一键签到服务/发言分析等）。
 
 ## 阶段进度
 

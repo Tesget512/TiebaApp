@@ -40,7 +40,7 @@ final class HeliosHasherTests: XCTestCase {
 
     func testCuidFormat() {
         // 只验证格式与确定性，不断言具体值（依赖持久化的随机 androidId/uuid）
-        let id = DeviceIdentity()
+        let id = DeviceIdentity.shared
         XCTAssertEqual(id.androidId.count, 16)
         XCTAssertTrue(id.cUID.range(of: "^[0-9A-F]{32}$", options: .regularExpression) != nil)
         XCTAssertTrue(id.newCUID.contains("|V"))
@@ -48,6 +48,6 @@ final class HeliosHasherTests: XCTestCase {
         // Android getAid(): rawAid = "A00-{base32(sha1)}-" 后接 helios sign（无分隔符）
         XCTAssertTrue(id.c3Aid.range(of: "^A00-[A-Z2-7]+-[A-Z2-7]+$", options: .regularExpression) != nil)
         // 幂等
-        XCTAssertEqual(id.newCUID, DeviceIdentity().newCUID)
+        XCTAssertEqual(id.newCUID, DeviceIdentity.shared.newCUID)
     }
 }

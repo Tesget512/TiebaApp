@@ -18,4 +18,16 @@ enum TiebaAPIError: LocalizedError {
         case .network(let e): return e.localizedDescription
         }
     }
+
+    /// 组合 Tieba `Error` 的文案（Android CommonResponse 的 message 逻辑）
+    static func message(from error: Tieba_Error) -> String {
+        errorMessage(code: Int(error.errorCode), msg: error.errorMsg, userMsg: error.userMsg)
+    }
+
+    static func errorMessage(code: Int, msg: String, userMsg: String) -> String {
+        var parts: [String] = []
+        if !msg.isEmpty { parts.append(msg) }
+        if !userMsg.isEmpty { parts.append(userMsg) }
+        return parts.isEmpty ? "错误码 \(code)" : parts.joined(separator: " / ")
+    }
 }

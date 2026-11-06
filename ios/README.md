@@ -5,16 +5,25 @@ Android 版共用同一套贴吧协议（protobuf 端点、签名算法、设备
 
 ![发现页](docs/explore_screenshot.png)
 
-## 功能状态（v1）
+## 功能状态（v2，对齐 Android 主分支功能面）
 
 | 功能 | 状态 | 通道 |
 |---|---|---|
-| 发现页·个性化推荐 | ✅ 真实数据 | protobuf `/c/f/excellent/personalized` |
-| 吧页（最新/精华） | ✅ 真实数据 | protobuf `/c/f/frs/page` |
+| 发现页·个性化推荐 | ✅ 真实数据 | protobuf `/c/f/excellent/personalized`（V12） |
+| 热榜 | ✅ 真实数据 | protobuf 签名通道 `/c/f/forum/hotThreadList?cmd=309661` |
+| 关注动态 | ✅ 接口就绪（需登录） | protobuf 签名通道 `/c/f/concern/userlike?cmd=309474` |
+| 进吧（关注吧列表） | ✅ 接口就绪（需登录） | protobuf 签名通道 `/c/f/forum/forumrecommend?cmd=303011` |
+| 热议话题 | ✅ 真实数据 | protobuf 签名通道 `/c/f/recommend/topicList?cmd=309289` |
+| 吧页（最新/精华+签到） | ✅ 真实数据 | protobuf `/c/f/frs/page` + JSON `/c/c/forum/sign` |
 | 帖子内容·富文本 | ✅ 真实数据 | protobuf `/c/f/pb/page` |
-| 用户主页 | ✅ 接口就绪 | protobuf `/c/u/user/profile` |
+| 楼中楼（含回复） | ✅ 真实数据 | protobuf V22 `/c/f/pb/floor` + POST `/c/c/post/add` |
+| 回复/点赞/收藏 | ✅ 需登录 | POST `/c/c/post/add`、JSON `/c/c/agree/opAgree`、`/c/c/post/addstore` |
+| 用户主页+关注/取关 | ✅ | protobuf `/c/u/user/profile` + JSON `/c/c/user/follow` |
+| TA 的主题贴/回复 | ✅ | protobuf `/c/u/feed/userpost?cmd=303002` |
+| 搜索（联想+帖子） | ✅ 真实数据 | protobuf `searchSug` + JSON `/c/s/searchpost` |
+| 通知（回复/@/赞） | ✅ 需登录 | JSON NEW 通道 `/c/u/feed/replyme|atme|agreeme` |
+| 浏览历史/我的收藏 | ✅ 本地+云端 | 本地 UserDefaults + JSON `/c/f/post/threadstore` |
 | 登录（BDUSS） | ✅ | WKWebView wappass → `/c/s/login` |
-| 楼中楼详情/搜索/通知/点赞/签到 | ⏳ 后续迭代 | — |
 
 ## 构建
 
@@ -58,7 +67,12 @@ ios/
 
 - **签名**：`sign = MD5(参数名排序 name=value 无分隔符拼接 + "tiebaclient!!!")`；
   V12 系列 protobuf 请求的信封不含 `_client_version` part，因此**不签名**
-- **multipart 信封**：boundary 固定 `--------7da3d81520810*`；part 顺序 `stoken?` → `data`
+- **签名 protobuf 通道**（热榜/关注动态/热议/进吧推荐走的 `OFFICIAL_PROTOBUF_TIEBA_API`）：
+  `CommonParamInterceptor` 会把 `_client_version=12.52.1.0` 等公共参数**注入为 multipart
+  part** → 信封含 `_client_version` → **必须签名**；part 顺序变为
+  「非文件 part 按 name 升序 → sign → data(file)」
+- **multipart 信封**：boundary 固定 `--------7da3d81520810*`；免签通道 part 顺序
+  `stoken?` → `data`
 - **设备指纹**：`helios` 40-bit BitSet 哈希链（CRC32+xxHash32×2+CRC32，注意初始全 1、
   前 len 字节截断、逻辑右移三个坑），iOS 侧 androidId 用持久化随机 16hex 替代
 - **登录**：wappass WebView 登录 → 抓 `BDUSS/STOKEN` → `/c/s/login` 换 uid/tbs
@@ -71,7 +85,9 @@ xcodebuild -project TiebaLite.xcodeproj -scheme TiebaLite \
 ```
 
 - `HeliosHasherTests`：7 个向量与 Temurin 17 运行 Android 同源 Java 的输出逐字节一致
+- `ProtocolTests`：签名算法/multipart 信封 part 顺序（含签名通道）/CommonRequest 字段
 - `NetworkSmokeTests`：真实调用贴吧接口（需外网），断言返回非空数据
+  （发现/吧页/帖子/楼中楼/搜索/热榜/热议/进吧推荐/用户帖子/浏览吧）
 
 ## 许可
 
