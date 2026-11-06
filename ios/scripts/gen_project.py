@@ -176,6 +176,8 @@ def main():
         res_buildfiles.append(bid)
     for rel in protos:
         bid, fid = add_file(os.path.join("Generated/Protos", rel), IDS["protos_group"], rel, in_sources=True)
+        proto_children.append((fid, rel))
+        src_buildfiles.append(bid)
 
     # ---- SwiftProtobufCore 静态库 target 的源文件 ----
     rt_children, rt_buildfiles = [], []
@@ -509,6 +511,7 @@ def main():
         a("\t\t\t\tEXECUTABLE_PREFIX = lib;")
         a("\t\t\t\tIPHONEOS_DEPLOYMENT_TARGET = 16.0;")
         a("\t\t\t\tPRODUCT_NAME = \"$(TARGET_NAME)\";")
+        a("\t\t\t\tPRODUCT_MODULE_NAME = SwiftProtobuf;")
         a("\t\t\t\tSDKROOT = iphoneos;")
         a("\t\t\t\tSUPPORTED_PLATFORMS = \"iphoneos iphonesimulator\";")
         a("\t\t\t\tSWIFT_VERSION = 5.0;")

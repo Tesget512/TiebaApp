@@ -36,3 +36,17 @@
   `Core/Device/DeviceIdentity.swift`（cUID/newCUID/finalCUID/c3Aid，androidId 用
   持久化随机 16hex 替代）。
 - 遗留：API 客户端（签名/multipart/CommonRequest）→ P4b。
+
+## 2026-11-06 P4b 协议层完成 ✅（真实 API 冒烟验证通过）
+
+- **API 客户端全链路打通并在模拟器上真实调通**（NetworkSmokeTests 2/2 通过）：
+  - `ProtobufEnvelope`：固定 boundary `--------7da3d81520810*` 的 multipart 信封
+  - `CommonRequestBuilder`：V12 分支全部字段（含 helios 设备指纹 cUID/c3_aid）
+  - `TiebaAPIClient`：headers（X-BD-Data-Type/Cookie/CUID 系）+ 错误探测（ProtoCommonResponse）
+  - `TiebaEndpoints`：personalized/frsPage/pbPage/userProfile 四个核心端点
+  - 真实验证：`/c/f/excellent/personalized?cmd=309264` 与 `/c/f/frs/page?cmd=301001`
+    返回真实帖子/吧数据（断言非空通过）
+- pbxproj 生成器关键修复：proto 文件此前未进 app Sources phase（漏 append）；
+  SwiftProtobufCore 设置 PRODUCT_MODULE_NAME=SwiftProtobuf 使生成代码 import 不变
+- 构建经验：pbxproj 变更后必须清 DerivedData（增量构建不感知文件集变化）
+- 遗留：登录 WebView（P4c）、JSON 通道（opAgree/sign）、UI 层（P5）
