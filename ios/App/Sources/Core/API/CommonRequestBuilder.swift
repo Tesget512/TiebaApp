@@ -159,6 +159,22 @@ enum ClientUtils {
 
     /// encodedOAID（V12_POST 分支使用；iOS 无 OAID）
     static var encodedOAID: String { d.string(forKey: "tieba.encodedOAID") ?? "" }
+
+    /// `baiduid`：Android 从 BAIDUID cookie 取（ClientUtils.baiduId）；
+    /// iOS 从登录抓取的 cookie 串解析，无则空串
+    static var baiduId: String {
+        if let v = d.string(forKey: "tieba.baiduId"), !v.isEmpty { return v }
+        guard let cookie = TiebaJSONClient.shared.accountProvider()?.cookie else { return "" }
+        for pair in cookie.split(separator: ";") {
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            if kv.count == 2, kv[0].trimmingCharacters(in: .whitespaces) == "BAIDUID" {
+                let v = kv[1].trimmingCharacters(in: .whitespaces)
+                d.set(v, forKey: "tieba.baiduId")
+                return v
+            }
+        }
+        return ""
+    }
 }
 
 /// 屏幕参数（对应 Android `App.ScreenInfo`，由 BaseActivity.getDeviceDensity 填充）

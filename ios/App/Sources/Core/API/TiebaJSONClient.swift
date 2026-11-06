@@ -31,7 +31,38 @@ enum TiebaJSONChannel {
     func commonParams() -> [String: String] {
         switch self {
         case .official:
-            return ["from": "tieba"]
+            // 1:1 对齐 Android OFFICIAL_TIEBA_API 渠道级 CommonParamInterceptor
+            // （RetrofitTiebaApi.kt:185-228：default + 渠道专属约 25 个参数）
+            let device = DeviceIdentity.shared
+            let now = Date()
+            let cal = Calendar(identifier: .gregorian)
+            let eventDay = "\(cal.component(.year, from: now))\(cal.component(.month, from: now))\(cal.component(.day, from: now))"
+            var p: [String: String] = [
+                "from": "tieba",
+                "_client_version": ClientVersion.v12.rawValue,
+                "active_timestamp": "\(ClientUtils.activeTimestamp)",
+                "android_id": Data(device.androidId.utf8).base64EncodedString(),
+                "baiduid": ClientUtils.baiduId,
+                "brand": "Apple",
+                "cmode": "1",
+                "cuid": device.newCUID,
+                "cuid_galaxy2": device.newCUID,
+                "cuid_gid": "",
+                "cuid_galaxy3": device.c3Aid,
+                "event_day": eventDay,
+                "extra": "",
+                "first_install_time": "\(ClientUtils.firstInstallTime)",
+                "framework_ver": "3340042",
+                "is_teenager": "0",
+                "last_update_time": "\(ClientUtils.lastUpdateTime)",
+                "mac": "02:00:00:00:00:00",
+                "sdk_ver": "2.34.0",
+                "start_scheme": "",
+                "start_type": "1",
+                "swan_game_ver": "1038000",
+            ]
+            if !ClientUtils.sampleId.isEmpty { p["sample_id"] = ClientUtils.sampleId }
+            return p
         case .mini:
             return [
                 "from": "1021636m",
@@ -56,12 +87,12 @@ enum TiebaJSONChannel {
     static func defaultCommonParams() -> [String: String] {        let device = DeviceIdentity.shared
         return [
             "BDUSS": TiebaJSONClient.shared.accountProvider()?.bduss ?? "",
-            "client_id": ClientUtils.clientId,
+            "_client_id": ClientUtils.clientId,
             "_client_type": "2",
             "_os_version": "16.0",
             "model": device.deviceModel,
             "net_type": "1",
-            "phone_imei": "000000000000000",
+            "_phone_imei": "000000000000000",
             "timestamp": "\(Int64(Date().timeIntervalSince1970 * 1000))",
         ]
     }

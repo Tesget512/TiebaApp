@@ -142,6 +142,7 @@ struct ThreadPage: View {
         content
             .navigationTitle(title.isEmpty ? (forumName.isEmpty ? "帖子" : forumName) : title)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .tabBar)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
@@ -449,6 +450,7 @@ struct ThreadPage: View {
                     client: .shared, threadId: threadID, page: pn, rn: 15,
                     forumId: resolvedForumId, seeLz: seeLz, sortType: sortDesc ? 1 : 0)
                 posts = data.postList
+                posts.resolveAuthors(AuthorResolver.map(data.userList))
                 nextPage = Int(data.page.currentPage)
                 hasMore = data.page.hasMore_p != 0
                 errorText = nil
@@ -469,6 +471,7 @@ struct ThreadPage: View {
                 client: .shared, threadId: threadID, page: 0, rn: 15,
                 forumId: resolvedForumId, seeLz: seeLz, sortType: sortDesc ? 1 : 0)
             posts = data.postList
+            posts.resolveAuthors(AuthorResolver.map(data.userList))
             forumName = data.forum.name
             if resolvedForumId == 0 {
                 resolvedForumId = forumId != 0 ? forumId : data.forum.id
@@ -495,7 +498,9 @@ struct ThreadPage: View {
             let data = try await TiebaEndpoints.pbPage(
                 client: .shared, threadId: threadID, page: nextPage, rn: 15,
                 forumId: resolvedForumId, seeLz: seeLz, sortType: sortDesc ? 1 : 0)
-            posts += data.postList
+            var more = data.postList
+            more.resolveAuthors(AuthorResolver.map(data.userList))
+            posts += more
             nextPage = Int(data.page.currentPage)
             hasMore = data.page.hasMore_p != 0
         } catch {
@@ -666,6 +671,7 @@ struct FloorDetailPage: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .task { if subPosts.isEmpty { await reload() } }
     }
 

@@ -40,6 +40,7 @@ struct ForumPage: View {
         }
         .navigationTitle(forumName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -218,6 +219,7 @@ struct ForumPage: View {
                 goodClassifyId: tab == .good ? 0 : nil)
             forum = data.forum
             threads = data.threadList.filter { !$0.isLive }
+            threads.resolveAuthors(AuthorResolver.map(data.userList))
             hasMore = data.page.hasMore_p != 0
             errorText = nil
             generalTabs = data.navTabInfo.tab.filter { $0.isGeneralTab == 1 }
@@ -239,7 +241,9 @@ struct ForumPage: View {
                 client: .shared, forumName: forumName, page: next,
                 sortType: latestSort, isGood: tab == .good,
                 goodClassifyId: tab == .good ? 0 : nil)
-            threads += data.threadList.filter { !$0.isLive }
+            var more = data.threadList.filter { !$0.isLive }
+            more.resolveAuthors(AuthorResolver.map(data.userList))
+            threads += more
             page = next
             hasMore = data.page.hasMore_p != 0
         } catch {

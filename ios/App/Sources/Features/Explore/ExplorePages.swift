@@ -311,6 +311,7 @@ struct ThreadStorePage: View {
                 }
             }
             .navigationTitle("我的收藏")
+            .toolbar(.hidden, for: .tabBar)
             .task { if items.isEmpty { await load() } }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         }
@@ -363,6 +364,7 @@ struct HistoryPageView: View {
                 }
             }
             .navigationTitle("浏览历史")
+            .toolbar(.hidden, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("清空", role: .destructive) {
@@ -469,6 +471,7 @@ struct UserPostListPage: View {
             }
             .navigationTitle(isThread ? "\(name)的主题贴" : "\(name)的回复")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .tabBar)
             .task { if posts.isEmpty { await load() } }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         }

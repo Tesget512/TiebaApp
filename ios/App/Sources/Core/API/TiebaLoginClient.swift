@@ -24,9 +24,12 @@ enum TiebaLoginClient {
             "net_type": "1",
             "timestamp": String(Int64(Date().timeIntervalSince1970 * 1000)),
             "authsid": "null",
-            "user_id": "",
         ]
-        // Android: @Field("stoken") sToken = AccountUtil.getSToken()!!（登录前为空串）
+        // Android: @Field("user_id") = AccountUtil.getUid()，首次登录为 null → Retrofit 不发送该字段
+        if let uid = TiebaJSONClient.shared.accountProvider()?.uid, !uid.isEmpty {
+            params["user_id"] = uid
+        }
+        // Android: @Field("stoken") sToken = AccountUtil.getSToken()!!（登录前为空串，照发）
         params["stoken"] = stoken
         params = Signer.signFormParams(params)
 
@@ -69,7 +72,9 @@ enum TiebaLoginClient {
         }
         let code = Int(login.error_code?.value ?? "0") ?? 0
         if code != 0 {
-            throw TiebaAPIError.apiError(code: code, message: login.error_msg ?? "登录失败")
+            // 带上错误码便于排查（如 300004=BDUSS 无效）
+            throw TiebaAPIError.apiError(code: code,
+                                         message: "[code \(code)] \(login.error_msg ?? "登录失败")")
         }
 
         var account = Account(

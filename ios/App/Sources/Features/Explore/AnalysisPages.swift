@@ -54,6 +54,7 @@ struct PostAnalysisPage: View {
         }
         .navigationTitle("\(name)的发言分析")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .task { if result == nil { await analyze() } }
     }
 

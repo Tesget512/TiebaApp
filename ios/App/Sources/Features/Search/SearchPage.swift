@@ -38,6 +38,7 @@ struct SearchPage: View {
         }
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         .onChange(of: scope) { _ in
             // 切范围时若已有结果则立即重搜

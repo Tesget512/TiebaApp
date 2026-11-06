@@ -220,6 +220,7 @@ struct GeneralTabListPage: View {
             }
             .navigationTitle(tab.name.isEmpty ? forumName : tab.name)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .tabBar)
             .task { if threads.isEmpty { await load() } }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         }

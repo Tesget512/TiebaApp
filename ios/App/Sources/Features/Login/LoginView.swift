@@ -82,7 +82,9 @@ struct LoginWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKHTTPCookieStoreObserver {
         var parent: LoginWebView
-        private var captured = false
+        weak var webView: WKWebView?
+        /// 上一次已提交换取的 BDUSS；新 BDUSS 出现会再次回调（失败后自动重试）
+        private var lastSubmittedBduss = ""
         private var pollTask: Task<Void, Never>?
 
         init(_ parent: LoginWebView) {
@@ -91,6 +93,7 @@ struct LoginWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            self.webView = webView
             startPolling(webView)
         }
 
@@ -102,32 +105,34 @@ struct LoginWebView: UIViewRepresentable {
 
         /// 登录跳转常由 JS 完成（不触发 didFinish），所以：
         /// 1. 注册 cookieStore 变更观察（含 HttpOnly cookie）
-        /// 2. 从进入贴吧域开始，每秒轮询一次 cookie，最长 20s
+        /// 2. 每秒轮询一次，最长 30s；BDUSS 出现或**变化**都会提交换取
         private func startPolling(_ webView: WKWebView) {
+            self.webView = webView
             let store = webView.configuration.websiteDataStore.httpCookieStore
             store.add(self)
             guard pollTask == nil else { return }
             pollTask = Task { [weak self] in
-                for _ in 0..<20 {
-                    guard let self, !self.captured else { return }
-                    await self.checkCookies(webView)
-                    if self.captured { return }
+                for _ in 0..<30 {
+                    guard let self else { return }
+                    await self.checkCookies()
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                 }
             }
         }
 
+        /// cookie 变化（含 JS/HttpOnly 设置）立即检查——失败重试的关键路径
         nonisolated func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
-            // 回调在非主线程；主线程在 captured 原子判断下处理，重复回调无害
+            Task { [weak self] in
+                await self?.checkCookies()
+            }
         }
 
-        private func checkCookies(_ webView: WKWebView) async {
-            guard !captured else { return }
+        private func checkCookies() async {
+            guard let webView else { return }
             let store = webView.configuration.websiteDataStore.httpCookieStore
             let cookies: [HTTPCookie] = await withCheckedContinuation { cont in
                 store.getAllCookies { cont.resume(returning: $0) }
             }
-            guard !captured else { return }
             var bduss = "", stoken = ""
             var pairs: [String] = []
             for c in cookies where c.domain.contains("baidu.com") {
@@ -135,9 +140,9 @@ struct LoginWebView: UIViewRepresentable {
                 if c.name == "BDUSS" { bduss = c.value }
                 if c.name == "STOKEN" { stoken = c.value }
             }
-            guard !bduss.isEmpty else { return }
-            captured = true
-            pollTask?.cancel()
+            // 空值跳过；同一 BDUSS 不重复提交；新 BDUSS（重新登录/换号）自动重试
+            guard !bduss.isEmpty, bduss != lastSubmittedBduss else { return }
+            lastSubmittedBduss = bduss
             let header = pairs.joined(separator: "; ")
             await MainActor.run { self.parent.onCookies(bduss, stoken, header) }
         }

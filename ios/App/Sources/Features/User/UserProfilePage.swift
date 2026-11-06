@@ -26,6 +26,7 @@ struct UserProfilePage: View {
         .navigationTitle(data?.user.nameShow.isEmpty == false ? data!.user.nameShow
                          : (data?.user.name ?? "用户主页"))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .overlay(alignment: .bottom) {
             if let toast {
                 Text(toast)

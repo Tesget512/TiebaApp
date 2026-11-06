@@ -84,6 +84,47 @@ extension Tieba_SubPostList {
     var authorAvatarURL: URL? { Tieba_ThreadInfo.portraitURL(author.portrait) }
 }
 
+/// user_list 作者映射（Android ThreadViewModel/FrsPageRepository 的 join 逻辑）：
+/// proto 响应里 post/threadInfo 只带 author_id，作者详情集中在 user_list，
+/// 客户端必须按 id 关联——否则楼层/列表作者名与头像为空。
+enum AuthorResolver {
+    static func map(_ users: [Tieba_User]) -> [Int64: Tieba_User] {
+        var dict: [Int64: Tieba_User] = [:]
+        for u in users where u.id != 0 { dict[u.id] = u }
+        return dict
+    }
+}
+
+extension Tieba_ThreadInfo {
+    /// author 为空时从 user_list 按 authorID 回填（Android userList.find { it.id == authorId }）
+    mutating func resolveAuthor(_ users: [Int64: Tieba_User]) {
+        if author.id == 0, authorID != 0, let u = users[authorID] {
+            author = u
+        }
+    }
+}
+
+extension Tieba_Post {
+    mutating func resolveAuthor(_ users: [Int64: Tieba_User]) {
+        if author.id == 0, authorID != 0, let u = users[authorID] {
+            author = u
+        }
+    }
+}
+
+extension Array where Element == Tieba_ThreadInfo {
+    /// 批量回填（原地）
+    mutating func resolveAuthors(_ users: [Int64: Tieba_User]) {
+        for i in indices { self[i].resolveAuthor(users) }
+    }
+}
+
+extension Array where Element == Tieba_Post {
+    mutating func resolveAuthors(_ users: [Int64: Tieba_User]) {
+        for i in indices { self[i].resolveAuthor(users) }
+    }
+}
+
 extension String {
     var isNotEmpty: Bool { !isEmpty }
 }
