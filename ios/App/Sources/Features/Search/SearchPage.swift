@@ -10,7 +10,6 @@ struct SearchPage: View {
     @State private var isSearching = false
     @State private var errorText: String?
     @State private var suggestTask: Task<Void, Never>?
-    @State private var path = NavigationPath()
 
     // 搜索历史（Android SearchPage：可清空/删除）
     @State private var history: [String] = []
@@ -44,8 +43,7 @@ struct SearchPage: View {
         }
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
-        .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
+        .bottomBarHidden()
         .onChange(of: scope) { _ in
             // 切范围时若已有结果则立即重搜
             if !lastQuery.isEmpty { Task { await search() } }
@@ -181,11 +179,10 @@ struct SearchPage: View {
                 switch scope {
                 case .thread:
                     ForEach(Array(threadResults.enumerated()), id: \.offset) { _, t in
-                        Button {
-                            path.append(AppRoute.thread(id: Int64(t.tid?.value ?? "0") ?? 0,
-                                                        title: t.title ?? "",
-                                                        forumId: Int64(t.forum_id?.value ?? "0") ?? 0))
-                        } label: {
+                        NavigationLink(value: AppRoute.thread(
+                            id: Int64(t.tid?.value ?? "0") ?? 0,
+                            title: t.title ?? "",
+                            forumId: Int64(t.forum_id?.value ?? "0") ?? 0)) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(t.title ?? "").font(.subheadline.weight(.medium)).lineLimit(2)
                                 if let c = t.content, !c.isEmpty {
@@ -212,9 +209,7 @@ struct SearchPage: View {
                     }
                 case .forum:
                     ForEach(Array(forumResults.enumerated()), id: \.offset) { _, f in
-                        Button {
-                            path.append(AppRoute.forum(f.forum_name ?? ""))
-                        } label: {
+                        NavigationLink(value: AppRoute.forum(f.forum_name ?? "")) {
                             HStack(spacing: 12) {
                                 RemoteImage(url: URL(string: f.avatar ?? ""))
                                     .frame(width: 44, height: 44)
@@ -241,9 +236,7 @@ struct SearchPage: View {
                     }
                 case .user:
                     ForEach(Array(userResults.enumerated()), id: \.offset) { _, u in
-                        Button {
-                            path.append(AppRoute.user(uid: Int64(u.id?.value ?? "0") ?? 0))
-                        } label: {
+                        NavigationLink(value: AppRoute.user(uid: Int64(u.id?.value ?? "0") ?? 0)) {
                             HStack(spacing: 12) {
                                 AvatarView(url: Tieba_ThreadInfo.portraitURL(u.portrait ?? ""), size: 44)
                                 VStack(alignment: .leading, spacing: 2) {

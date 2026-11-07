@@ -1,13 +1,15 @@
 import SwiftUI
 
-/// 根视图：底部 Tab（发现/进吧/通知/我的）——对齐 Android `MainPage` 的 4 Tab 结构。
-/// 搜索是发现页 toolbar 的放大镜入口（Android ExplorePage 顶部 search icon）。
-/// 全局外观：主题色 tint + 夜间主题色板 + 字体缩放（对齐 Android 主题/字体全局生效）。
+/// 根视图：底部导航 = 自定义底栏（CustomTabBar）+ 4 个常驻 Tab 页。
+/// 系统底栏在各 tab 根视图统一隐藏（iOS 26 系统 tabBar 隐藏动画有 ~0.5s 闪现，
+/// 用户验收不通过）；push 详情页通过 `bottomBarHidden()` 隐藏自定义底栏。
 struct RootView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var prefs = AppPreferences.shared
     @Environment(\.colorScheme) private var systemColorScheme
     @State private var selectedTab = 0
+    /// 详情页是否要求隐藏底栏（PreferenceKey 汇总）
+    @State private var bottomBarHidden = false
     /// 剪贴板链接等外部跳转（sheet 承载，含关闭按钮）
     @State private var externalRoute: ExternalRoute?
 
@@ -16,9 +18,9 @@ struct RootView: View {
         let route: AppRoute
     }
 
-    /// 启动首选页（Android HabitSettings：首页/进吧/消息）
-    private var initialTab: Int {
-        min(max(prefs.startPage, 0), 2)
+    init() {
+        // 启动首选页（Android HabitSettings：首页/进吧/消息）
+        _selectedTab = State(initialValue: min(max(AppPreferences.shared.startPage, 0), 2))
     }
 
     /// 夜间主题：跟随系统时取系统色板，否则按用户选择的深色主题判定
@@ -49,28 +51,32 @@ struct RootView: View {
         return .accessibility1
     }
 
-    init() {
-        // 启动首选页（Android HabitSettings：首页/进吧/消息）
-        _selectedTab = State(initialValue: min(max(AppPreferences.shared.startPage, 0), 2))
-    }
-
     var body: some View {
-        TabView(selection: $selectedTab) {
-            ExploreView()
-                .tabItem { Label("发现", systemImage: "safari") }
-                .tag(0)
+        ZStack(alignment: .bottom) {
+            TabView(selection: $selectedTab) {
+                ExploreView()
+                    .tabItem { Label("发现", systemImage: "safari") }
+                    .tag(0)
+                    .toolbar(.hidden, for: .tabBar) // 系统底栏全程隐藏，由 CustomTabBar 接管
 
-            HomeFeedPage()
-                .tabItem { Label("进吧", systemImage: "square.grid.2x2") }
-                .tag(1)
+                HomeFeedPage()
+                    .tabItem { Label("进吧", systemImage: "square.grid.2x2") }
+                    .tag(1)
+                    .toolbar(.hidden, for: .tabBar)
 
-            NotificationsView()
-                .tabItem { Label("通知", systemImage: "bell") }
-                .tag(2)
+                NotificationsView()
+                    .tabItem { Label("通知", systemImage: "bell") }
+                    .tag(2)
+                    .toolbar(.hidden, for: .tabBar)
 
-            ProfileView()
-                .tabItem { Label("我的", systemImage: "person.crop.circle") }
-                .tag(3)
+                ProfileView()
+                    .tabItem { Label("我的", systemImage: "person.crop.circle") }
+                    .tag(3)
+                    .toolbar(.hidden, for: .tabBar)
+            }
+            .onPreferenceChange(BottomBarHiddenKey.self) { bottomBarHidden = $0 }
+            // 自定义底栏（隐藏声明由 TabView 内页面通过 preference 汇总上来）
+            CustomTabBar(selection: $selectedTab, isHidden: bottomBarHidden)
         }
         .tint(tintColor)
         .preferredColorScheme(prefs.followSystemNight ? nil : (usesDarkTheme ? .dark : .light))

@@ -40,7 +40,7 @@ struct ForumPage: View {
         }
         .navigationTitle(forumName)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .bottomBarHidden()
         .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -151,16 +151,14 @@ struct ForumPage: View {
         if isLoading && threads.isEmpty {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let err = errorText, threads.isEmpty {
-            UnavailableView(title: "加载失败", systemImage: "wifi.exclamationmark", description: err)
+            UnavailableView(title: "加载失败", systemImage: "wifi.exclamationmark",
+                            description: err, retry: { Task { await reload() } })
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     forumHeader
-                    ThreadListView(threads: threads, isLoadingMore: isLoadingMore) { t in
-                        path.append(AppRoute.thread(id: t.tid, title: t.title, forumId: t.forumID))
-                    } onLoadMore: {
-                        await loadMore()
-                    }
+                    ThreadListView(threads: threads, isLoadingMore: isLoadingMore,
+                                   onLoadMore: { await loadMore() })
                 }
             }
             .refreshable { await reload() }

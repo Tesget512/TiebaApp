@@ -55,7 +55,7 @@ struct ForumDetailPage: View {
         }
         .navigationTitle(forumName.isEmpty ? "吧详情" : forumName)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .bottomBarHidden()
         .task { await load() }
     }
 
@@ -127,7 +127,7 @@ struct ForumRulePage: View {
         }
         .navigationTitle("吧规")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .bottomBarHidden()
         .task { await load() }
     }
 
@@ -171,7 +171,7 @@ struct TopicListPage: View {
                 }
             }
             .navigationTitle("热议话题")
-            .toolbar(.hidden, for: .tabBar)
+            .bottomBarHidden()
             .task { if topics.isEmpty { await load() } }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         }
@@ -274,7 +274,7 @@ struct TopicDetailPage: View {
             }
             .navigationTitle(topicName)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.hidden, for: .tabBar)
+            .bottomBarHidden()
             .task { if threads.isEmpty { await load() } }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         }
@@ -422,7 +422,7 @@ struct FollowListView: View {
             }
             .navigationTitle(isFollow ? "关注" : "粉丝")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.hidden, for: .tabBar)
+            .bottomBarHidden()
             .task { if users.isEmpty { await load() } }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         }
@@ -536,7 +536,7 @@ struct UserLikeForumListPage: View {
             }
             .navigationTitle("关注的吧")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.hidden, for: .tabBar)
+            .bottomBarHidden()
             .task { if forums.isEmpty { await load() } }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         }

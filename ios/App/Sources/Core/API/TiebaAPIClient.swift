@@ -65,8 +65,10 @@ final class TiebaAPIClient {
 
     init() {
         let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 60
-        cfg.timeoutIntervalForResource = 60
+        // 15s：弱网/请求悬挂时尽快暴露错误（60s 会让"下拉刷新"转圈一分钟）
+        cfg.timeoutIntervalForRequest = 15
+        cfg.timeoutIntervalForResource = 30
+        cfg.waitsForConnectivity = false
         session = URLSession(configuration: cfg)
     }
 

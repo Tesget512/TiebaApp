@@ -234,7 +234,7 @@ struct ThreadPage: View {
         content
             .navigationTitle(title.isEmpty ? (forumName.isEmpty ? "帖子" : forumName) : title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.hidden, for: .tabBar)
+            .bottomBarHidden()
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
@@ -461,7 +461,8 @@ struct ThreadPage: View {
         if isLoading && posts.isEmpty {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let err = errorText, posts.isEmpty {
-            UnavailableView(title: "加载失败", systemImage: "wifi.exclamationmark", description: err)
+            UnavailableView(title: "加载失败", systemImage: "wifi.exclamationmark",
+                                description: err, retry: { Task { await reload() } })
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -872,7 +873,7 @@ struct FloorDetailPage: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .bottomBarHidden()
         .sheet(isPresented: $showSubReport) {
             if let subReportURL {
                 NavigationStack { WebViewPage(url: subReportURL) }

@@ -1,19 +1,62 @@
 import SwiftUI
 
-/// 网络图片：AsyncImage 封装 + 失败占位（对应 Android NetworkImage 的简化版）
+/// 内存位图缓存（RemoteImage 专用；磁盘层由共享 URLCache 承担）
+final class RemoteImageCache {
+    static let shared = RemoteImageCache()
+    private let cache = NSCache<NSString, UIImage>()
+    private init() {
+        cache.countLimit = 400
+        cache.totalCostLimit = 64 * 1024 * 1024
+    }
+    func image(for url: URL) -> UIImage? { cache.object(forKey: url.absoluteString as NSString) }
+    func store(_ image: UIImage, for url: URL) {
+        cache.setObject(image, forKey: url.absoluteString as NSString,
+                        cost: image.pngData()?.count ?? 1)
+    }
+}
+
+/// 网络图片：内存缓存 + URLCache 二级缓存 + 失败占位（对应 Android NetworkImage）
+/// 不用 AsyncImage：它无内存缓存，列表滚动会反复重下并闪烁
 struct RemoteImage: View {
     let url: URL?
     var contentMode: ContentMode = .fill
 
+    @State private var image: UIImage?
+    @State private var failed = false
+
     var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image):
-                image.resizable().aspectRatio(contentMode: contentMode)
-            case .failure:
-                Image(systemName: "photo").foregroundStyle(.secondary)
-            default:
-                Color(.systemGray5)
+        GeometryReader { geo in
+            ZStack {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: contentMode)
+                } else if failed {
+                    Image(systemName: "photo").foregroundStyle(.secondary)
+                } else {
+                    Color(.systemGray5)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
+        }
+        .task(id: url) {
+            guard let url else { failed = true; return }
+            if let cached = RemoteImageCache.shared.image(for: url) {
+                image = cached
+                return
+            }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let img = UIImage(data: data) {
+                    RemoteImageCache.shared.store(img, for: url)
+                    image = img
+                    failed = false
+                } else {
+                    failed = true
+                }
+            } catch {
+                failed = true
             }
         }
     }
@@ -209,11 +252,13 @@ struct FeedCard: View {
     }
 }
 
-/// 帖子列表（发现页/吧页/搜索结果共用）
+/// 帖子列表（发现页/吧页/搜索结果共用）。
+/// 行内跳转用 `NavigationLink(value:)`——必须依赖所在栈已注册的
+/// `navigationDestination(for: AppRoute.self)`，**不要**在 push 页里自建
+/// 未绑定的 NavigationPath（那会导致点击完全无效）。
 struct ThreadListView: View {
     let threads: [Tieba_ThreadInfo]
     var isLoadingMore: Bool = false
-    var onOpenThread: (Tieba_ThreadInfo) -> Void
     /// 是否在末尾展示"加载更多"（由外部 `onLoadMore` 驱动）
     var onLoadMore: (() async -> Void)?
     /// 不感兴趣：tid → 理由列表（推荐流传入，其他页缺省）
@@ -242,12 +287,19 @@ struct ThreadListView: View {
     var body: some View {
         LazyVStack(spacing: 0) {
             ForEach(visibleThreads, id: \.tid) { t in
-                Button { onOpenThread(t) } label: {
+                NavigationLink(value: AppRoute.thread(id: t.tid, title: t.title,
+                                                      forumId: t.forumID)) {
                     FeedCard(thread: t,
                              dislikeReasons: dislikeProvider?(t.tid) ?? [],
                              onDislike: onDislike != nil ? { onDislike?(t) } : nil)
                 }
                 .buttonStyle(.plain)
+                .simultaneousGesture(TapGesture().onEnded {
+                    // 记录浏览历史（对齐 Android HistoryUtil.recordThread）
+                    HistoryStore.record(type: 2, id: "\(t.tid)",
+                                        title: t.title.isEmpty ? t.abstractText : t.title,
+                                        subtitle: t.forumName, avatar: t.author.portrait)
+                })
                 Divider().padding(.leading, 16)
             }
             if let onLoadMore {

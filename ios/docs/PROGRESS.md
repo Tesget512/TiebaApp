@@ -337,3 +337,31 @@
 - **WebViewPage**：新增「在浏览器内打开」；**登录页**顶栏新增「刷新」。
 - 平台性差异保持文档化（桌面快捷方式/电池优化提醒/宽屏 NavigationRail/Monet 取色/
   CustomTabs/状态栏遮罩——iOS 无等价 API，见 P9 记录）。
+
+## 2026-11-07 P17 真机验收三问题修复 + 体验补强 ✅
+
+（用户真机安装 adhoc ipa 验收反馈：刷新不了 / 帖子点不进去 / 返回时底栏闪现）
+
+- **帖子点不进去（根因）**：ForumPage / SearchPage / ForumSearchPostPage 都是被
+  push 进 ExploreView 的 NavigationStack 的页面，却各自创建了**未绑定到任何栈的
+  本地 NavigationPath** 并用 `path.append` 跳转——改的是死对象，点击完全无效。
+  修复：ThreadListView 行改为 `NavigationLink(value: AppRoute.thread(...))`
+  （依赖所在栈已注册的 destination，任何页内都有效），浏览历史记录改由
+  simultaneousGesture 在点击时统一执行；SearchPage/ForumSearchPostPage 的
+  死 path 与重复 destination 移除；HotPage/ConcernFeed/Recommend/GeneralTabList
+  调用点同步适配。
+- **刷新转圈不结束**：请求超时 60s→15s（弱网/悬挂尽快暴露错误），刷新失败
+  顶部横条提示（已有内容时），失败页加**重试按钮**（UnavailableView retry）。
+- **底栏延迟半秒闪现**：iOS 26 Liquid Glass 系统 tabBar 与
+  `.toolbar(.hidden, for: .tabBar)` 的 push/pop 动画缺陷 → **自定义底栏
+  CustomTabBar 全面接管**：系统底栏在 4 个 tab 根视图永久隐藏，pushed 页用
+  `bottomBarHidden()`（PreferenceKey 汇总）声明隐藏自定义底栏，无系统动画闪现；
+  视觉对齐 Android 底部导航。
+- **图片体验补强**：RemoteImage 从 AsyncImage 换成 NSCache 内存缓存 + 扩容
+  URLCache（64MB 内存/256MB 磁盘，默认仅 512KB/10MB 导致列表反复重下与闪烁）。
+- **adhoc 构建脚本修复**：`set -euo pipefail` 下 `codesign | grep -q` 的
+  SIGPIPE 竞态（grep -q 提前退出 → codesign 退出 141 → pipefail 误判失败）
+  → 改为先捕获输出再 grep。
+- **验证（退出码驱动 + 截图）**：深链 tblite://thread 进帖页 → pbPage 返回
+  服务端真实业务错误文案（"该贴已被删除"）→ 重试按钮/自定义底栏隐藏均生效；
+  推荐流/自定义底栏截图确认。

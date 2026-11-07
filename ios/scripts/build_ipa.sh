@@ -44,13 +44,14 @@ echo "== 3) 签名验收（退出码驱动）=="
 SIG_LINE="$(codesign -dv "$APP_PATH" 2>&1 | grep '^Signature=')"
 echo "$SIG_LINE"
 [ "$SIG_LINE" = "Signature=adhoc" ] || { echo "❌ Signature 不是 adhoc: $SIG_LINE"; exit 1; }
-codesign -dv "$APP_PATH" 2>&1 | grep -q '^TeamIdentifier=not set$' \
+CS_OUT="$(codesign -dv "$APP_PATH" 2>&1 || true)"
+echo "$CS_OUT" | grep -q '^TeamIdentifier=not set$' \
   || { echo "❌ TeamIdentifier 异常"; exit 1; }
 codesign --verify --strict "$APP_PATH"
 echo "✅ strict 校验通过"
 # 确认签名身份列表无其他证书（adhoc 无 identity）
 security find-identity -v -p codesigning >/dev/null 2>&1 || true
-if codesign -dvv "$APP_PATH" 2>&1 | grep -q "Authority=Apple"; then
+if echo "$CS_OUT" | grep -q "Authority=Apple"; then
   echo "❌ 检测到 Apple 证书链（不应存在）"; exit 1
 fi
 echo "✅ 仅 adhoc（无其他证书/描述文件）"
@@ -69,7 +70,8 @@ echo "✅ 无 embedded.mobileprovision"
 # 复核包内二进制签名仍是 adhoc
 TMP_CHECK="$(mktemp -d)"
 unzip -q "$BUILD_DIR/$APP_NAME-adhoc.ipa" "Payload/$APP_NAME.app/$APP_NAME" -d "$TMP_CHECK"
-codesign -dv "$TMP_CHECK/Payload/$APP_NAME.app/$APP_NAME" 2>&1 | grep -q '^Signature=adhoc$' \
+INNER_OUT="$(codesign -dv "$TMP_CHECK/Payload/$APP_NAME.app/$APP_NAME" 2>&1 || true)"
+echo "$INNER_OUT" | grep -q '^Signature=adhoc$' \
   || { echo "❌ ipa 内主二进制签名非 adhoc"; rm -rf "$TMP_CHECK"; exit 1; }
 rm -rf "$TMP_CHECK"
 echo "✅ 包内主二进制 Signature=adhoc"

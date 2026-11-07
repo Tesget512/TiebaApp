@@ -72,7 +72,6 @@ struct ForumSearchPostPage: View {
     @State private var isLoadingMore = false
     @State private var hasMore = false
     @State private var searched = false
-    @State private var path = NavigationPath()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,8 +81,7 @@ struct ForumSearchPostPage: View {
         }
         .navigationTitle("\(forumName) 吧内搜索")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
-        .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
+        .bottomBarHidden()
         .onAppear { history = SearchStore.all() }
     }
 
@@ -167,11 +165,10 @@ struct ForumSearchPostPage: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(Array(results.enumerated()), id: \.offset) { idx, t in
-                    Button {
-                        path.append(AppRoute.thread(id: Int64(t.tid?.value ?? "0") ?? 0,
-                                                    title: t.title ?? "",
-                                                    forumId: Int64(t.forum_id?.value ?? "0") ?? 0))
-                    } label: {
+                    NavigationLink(value: AppRoute.thread(
+                        id: Int64(t.tid?.value ?? "0") ?? 0,
+                        title: t.title ?? "",
+                        forumId: Int64(t.forum_id?.value ?? "0") ?? 0)) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(t.title ?? "").font(.subheadline.weight(.medium)).lineLimit(2)
                             if let c = t.content, !c.isEmpty {

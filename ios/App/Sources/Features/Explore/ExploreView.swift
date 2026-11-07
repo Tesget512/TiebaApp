@@ -81,20 +81,28 @@ private struct RecommendFeedView: View {
             if isLoading && threads.isEmpty {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let err = errorText, threads.isEmpty {
-                UnavailableView(title: "加载失败", systemImage: "wifi.exclamationmark", description: err)
+                UnavailableView(title: "加载失败", systemImage: "wifi.exclamationmark",
+                                description: err, retry: { Task { await load(refresh: true) } })
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ThreadListView(threads: visibleThreads, isLoadingMore: isLoadingMore) { t in
-                            openThread(t)
-                        } onLoadMore: {
-                            await loadMore()
-                        } dislikeProvider: { tid in
-                            dislikeResources[tid] ?? []
-                        } onDislike: { t in
-                            threads.removeAll { $0.tid == t.tid }
-                            dislikeResources[t.tid] = nil
+                        if let err = errorText, !threads.isEmpty {
+                            // 刷新失败但已有内容：顶部横条提示（下次刷新成功自动消失）
+                            Text("刷新失败：\(err)")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(6)
+                                .background(Color(.systemGray6))
                         }
+                        ThreadListView(threads: visibleThreads, isLoadingMore: isLoadingMore,
+                                       onLoadMore: { await loadMore() },
+                                       dislikeProvider: { tid in
+                                           dislikeResources[tid] ?? []
+                                       },
+                                       onDislike: { t in
+                                           threads.removeAll { $0.tid == t.tid }
+                                           dislikeResources[t.tid] = nil
+                                       })
                     }
                 }
                 .refreshable { await load(refresh: true) }
@@ -117,12 +125,6 @@ private struct RecommendFeedView: View {
         if let forums = try? await TiebaExtraEndpoints.historyForum(client: .shared) {
             followedForumIds = Set(forums.historyForum.map(\.forumID))
         }
-    }
-
-    private func openThread(_ t: Tieba_ThreadInfo) {
-        HistoryStore.record(type: 2, id: "\(t.tid)", title: t.title.isEmpty ? t.abstractText : t.title,
-                            subtitle: t.forumName, avatar: t.author.portrait)
-        path.append(AppRoute.thread(id: t.tid, title: t.title, forumId: t.forumID))
     }
 
     private func load(refresh: Bool) async {
@@ -173,11 +175,8 @@ private struct ConcernFeedView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ThreadListView(threads: threads, isLoadingMore: isLoadingMore) { t in
-                            path.append(AppRoute.thread(id: t.tid, title: t.title, forumId: t.forumID))
-                        } onLoadMore: {
-                            await loadMore()
-                        }
+                        ThreadListView(threads: threads, isLoadingMore: isLoadingMore,
+                                       onLoadMore: { await loadMore() })
                     }
                 }
                 .refreshable { await load() }

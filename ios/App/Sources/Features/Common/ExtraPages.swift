@@ -214,11 +214,8 @@ struct GeneralTabListPage: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ThreadListView(threads: threads) { t in
-                                path.append(AppRoute.thread(id: t.tid, title: t.title, forumId: t.forumID))
-                            } onLoadMore: {
-                                await loadMore()
-                            }
+                            ThreadListView(threads: threads,
+                                           onLoadMore: { await loadMore() })
                         }
                     }
                     .refreshable { await load() }
@@ -226,7 +223,7 @@ struct GeneralTabListPage: View {
             }
             .navigationTitle(tab.name.isEmpty ? forumName : tab.name)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.hidden, for: .tabBar)
+            .bottomBarHidden()
             .task { if threads.isEmpty { await load() } }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         }
