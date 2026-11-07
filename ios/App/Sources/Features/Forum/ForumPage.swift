@@ -166,18 +166,7 @@ struct ForumPage: View {
                 .padding(.bottom, 24)
             }
         }
-        .overlay(alignment: .bottom) {
-            if let toast {
-                Text(toast)
-                    .font(.footnote).padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.bottom, 24)
-                    .task {
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        self.toast = nil
-                    }
-            }
-        }
+        .toast($toast)
         .task { if threads.isEmpty { await reload() } }
         .onChange(of: tab) { _ in Task { await reload() } }
     }

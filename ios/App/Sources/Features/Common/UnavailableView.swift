@@ -1,6 +1,42 @@
 import SwiftUI
 
-/// iOS 16 兼容的占位视图（ContentUnavailableView 是 iOS 17+）
+/// 占位视图：iOS 17 系统 ContentUnavailableView（成熟系统组件，
+/// 替换此前 iOS 16 兼容期手写副本）。对外参数不变，33 处调用点零改动；
+/// 提供 retry 时显示系统样式"重试"按钮。
+
+/// 全局轻提示（消除各页面重复复制的 overlay 胶囊）
+private struct ToastModifier: ViewModifier {
+    @Binding var message: String?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .bottom) {
+                if let message {
+                    Text(message)
+                        .font(.footnote)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.bottom, 24)
+                        .transition(.opacity)
+                        .task {
+                            try? await Task.sleep(nanoseconds: 1_500_000_000)
+                            self.message = nil
+                        }
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: message)
+    }
+}
+
+extension View {
+    /// 轻提示：`.toast($toast)`（2s 自动消失）
+    func toast(_ message: Binding<String?>) -> some View {
+        modifier(ToastModifier(message: message))
+    }
+}
+
+/// 占位视图（系统 ContentUnavailableView 包装）
 struct UnavailableView: View {
     let title: String
     let systemImage: String
@@ -9,31 +45,17 @@ struct UnavailableView: View {
     var retry: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 44))
-                .foregroundStyle(.secondary)
-            Text(title).font(.headline)
+        ContentUnavailableView {
+            Label(title, systemImage: systemImage)
+        } description: {
             if !description.isEmpty {
                 Text(description)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
             }
+        } actions: {
             if let retry {
-                Button {
-                    retry()
-                } label: {
-                    Text("重试")
-                        .font(.footnote.bold())
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 6)
-                        .background(Color.accentColor.opacity(0.15), in: Capsule())
-                }
-                .buttonStyle(.plain)
+                Button("重试", action: retry)
+                    .buttonStyle(.borderedProminent)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
     }
 }

@@ -35,18 +35,7 @@ struct UserProfilePage: View {
                          : (data?.user.name ?? "用户主页"))
         .navigationBarTitleDisplayMode(.inline)
         .bottomBarHidden()
-        .overlay(alignment: .bottom) {
-            if let toast {
-                Text(toast)
-                    .font(.footnote).padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.bottom, 24)
-                    .task {
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        self.toast = nil
-                    }
-            }
-        }
+        .toast($toast)
         .alert("拉黑范围", isPresented: $showBlackDialog) {
             Button("保存") { Task { await saveBlackInfo() } }
             Button("取消", role: .cancel) { }

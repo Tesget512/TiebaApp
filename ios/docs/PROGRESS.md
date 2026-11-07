@@ -571,3 +571,32 @@
 - AGENTS.md 更新：部署目标 17.0 事实 + 成熟第三方库约定固化。
 - 验证：编译全过（140 源文件）；sim 截图（SKPhotoBrowser 呈现/吧页
   KFImage 渲染色彩正常/首图封面）。
+
+## 2026-11-07 P22 手写组件全面盘点 → 系统/成熟组件替换 ✅
+
+（延续用户约束：能用成熟项目就不自己写。本轮对剩余手写组件逐个评估：
+「有成熟等价物→替换；协议核心→保留（1:1 移植不可换）；无库可换→记录理由」）
+
+- **UnavailableView → 系统 ContentUnavailableView**（iOS 17 官方组件）：
+  此前是 iOS 16 兼容期手写副本；部署目标升 17 后直接换系统实现。
+  对外参数（title/systemImage/description/retry）不变，33 处调用点零改动，
+  重试按钮用系统 actions 槽样式。
+- **手写柱状图 → Swift Charts**（Apple 官方图表框架）：发言分析的按月/按时段
+  柱状图从 GeometryReader 手绘换 BarMark + AxisMarks（自动坐标轴/无障碍/
+  自适应刻度全由系统承担）。
+- **TextAnalyzer 2/3-gram 土法分词 → NLTokenizer**（Apple 系统自然语言框架，
+  simplifiedChinese 真实词级切分）：高频词云质量升级（此前按字切分出大量
+  无意义碎片），保留停用词表与 TOP-N 计数接口。
+- **FlowLayoutView（alignmentGuide + 跨渲染可变状态 hack）→ SwiftUI Layout
+  协议**：原实现把滚动位置存进 View 属性、重渲染会残留错位（缺陷组件）；
+  换官方 Layout 协议测量/放置标准写法（FlowLayout）。
+- **Toast 去重**：4 个文件 12 处各自复制的 overlay 胶囊统一为
+  `.toast($msg)` 修饰器（公共 ToastModifier，2s 自动消失）。
+- **死代码清理**：RemoteImageCache（Kingfisher 接入后退场）删除。
+- **盘点后保留（记录理由）**：协议层（Signer/TiebaJSONClient/设备指纹 helios/
+  CommonRequestBuilder）= 1:1 移植核心不可换；EmoticonText 行内表情渲染
+  （贴吧 #(name) 协议特定语法，无通用库）；CustomTabBar（iOS 26 系统
+  tabBar 闪现缺陷，用户验收要求自研）；InlineVideoPlayer/WKWebView 壳
+  （已是系统组件薄封装）；LoadMoreFooter（无成熟等价物）；各 Store
+  （UserDefaults 薄封装）。
+- 验证：编译全过；sim 截图（吧页 Kingfisher 渲染/首图封面正常）。

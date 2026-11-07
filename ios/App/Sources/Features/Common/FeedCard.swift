@@ -1,20 +1,5 @@
 import SwiftUI
 
-/// 内存位图缓存（RemoteImage 专用；磁盘层由共享 URLCache 承担）
-final class RemoteImageCache {
-    static let shared = RemoteImageCache()
-    private let cache = NSCache<NSString, UIImage>()
-    private init() {
-        cache.countLimit = 400
-        cache.totalCostLimit = 64 * 1024 * 1024
-    }
-    func image(for url: URL) -> UIImage? { cache.object(forKey: url.absoluteString as NSString) }
-    func store(_ image: UIImage, for url: URL) {
-        cache.setObject(image, forKey: url.absoluteString as NSString,
-                        cost: image.pngData()?.count ?? 1)
-    }
-}
-
 /// 网络图片：Kingfisher（成熟库，ios/ThirdParty/Kingfisher 浅克隆编入主 target）。
 /// 保留原 API（url/contentMode），全部调用点零改动；
 /// 失败态可见且可点击重试；自动重试一次（DelayRetryStrategy）。

@@ -245,18 +245,7 @@ struct HomeFeedPage: View {
                 }
             }
             .navigationTitle("进吧")
-            .overlay(alignment: .bottom) {
-                if let toast {
-                    Text(toast)
-                        .font(.footnote).padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .padding(.bottom, 16)
-                        .task {
-                            try? await Task.sleep(nanoseconds: 1_500_000_000)
-                            self.toast = nil
-                        }
-                }
-            }
+            .toast($toast)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     NavigationLink(value: AppRoute.search) {

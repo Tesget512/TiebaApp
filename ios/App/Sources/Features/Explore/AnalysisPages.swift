@@ -1,6 +1,8 @@
 import SwiftUI
 import UIKit
 import Photos
+import Charts
+import NaturalLanguage
 
 /// 发言分析（对应 Android `ui/page/analysis/*` 的 iOS 版）：
 /// 拉取用户最近 N 页主题贴+回复，聚合月份/时段/吧/词频四个维度。
@@ -75,43 +77,34 @@ struct PostAnalysisPage: View {
                 .padding(.vertical, 10)
                 .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
 
-                // 按月
+                // 按月（Swift Charts，Apple 官方图表框架替换手写柱状）
                 section("按月统计") {
-                    let maxV = max(1, r.monthBuckets.map(\.count).max() ?? 1)
-                    ForEach(r.monthBuckets) { b in
-                        HStack(spacing: 8) {
-                            Text(b.key).font(.caption2.monospacedDigit()).frame(width: 64, alignment: .leading)
-                            GeometryReader { geo in
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(Color.blue.opacity(0.15))
-                                    Capsule().fill(Color.blue)
-                                        .frame(width: geo.size.width * CGFloat(b.count) / CGFloat(maxV))
-                                }
-                            }
-                            .frame(height: 12)
-                            Text("\(b.count)").font(.caption2.monospacedDigit()).frame(width: 32)
-                        }
+                    Chart(r.monthBuckets, id: \.key) { b in
+                        BarMark(
+                            x: .value("月份", b.key),
+                            y: .value("条数", b.count)
+                        )
+                        .foregroundStyle(Color.accentColor)
                     }
+                    .chartXAxis {
+                        AxisMarks(values: .automatic(desiredCount: 5))
+                    }
+                    .frame(height: 140)
                 }
 
-                // 按时段
+                // 按时段（Swift Charts）
                 section("按时段统计") {
-                    let maxV = max(1, r.hourBuckets.map(\.count).max() ?? 1)
-                    HStack(alignment: .bottom, spacing: 2) {
-                        ForEach(r.hourBuckets) { b in
-                            VStack(spacing: 2) {
-                                GeometryReader { geo in
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(Color.orange)
-                                        .frame(height: max(2, geo.size.height * CGFloat(b.count) / CGFloat(maxV)))
-                                        .frame(maxHeight: .infinity, alignment: .bottom)
-                                }
-                                .frame(height: 60)
-                                Text(String(b.key.prefix(2)))
-                                    .font(.system(size: 8)).foregroundStyle(.secondary)
-                            }
-                        }
+                    Chart(r.hourBuckets, id: \.key) { b in
+                        BarMark(
+                            x: .value("时段", b.key),
+                            y: .value("条数", b.count)
+                        )
+                        .foregroundStyle(.orange)
                     }
+                    .chartXAxis {
+                        AxisMarks(values: .automatic(desiredCount: 8))
+                    }
+                    .frame(height: 120)
                 }
 
                 // 吧排名
@@ -223,90 +216,91 @@ struct PostAnalysisPage: View {
     }
 }
 
-/// 中文分词统计（对应 Android `TextAnalyzer`：2-gram/3-gram + 停用字过滤）
+/// 高频词提取：NLTokenizer（Apple 系统自然语言分词，真实中文词级切分，
+/// 替换此前手写 2/3-gram + 停用字土法——切分质量与可读性均差）
 enum TextAnalyzer {
-    /// 单字停用词
-    static let stopChars: Set<Character> = ["的", "了", "是", "在", "我", "有", "和", "就",
-                                            "不", "人", "都", "一", "上", "也", "很",
-                                            "到", "说", "要", "去", "你", "会", "着",
-                                            "看", "好", "这", "那", "吗", "吧", "啊",
-                                            "呢", "呀", "么"]
     /// 多字停用词（整词匹配）
     static let stopWords: Set<String> = ["没有", "自己", "什么", "还是", "就是", "但是",
-                                          "可以", "因为", "所以", "如果", "现在", "时候", "一个"]
-    static let chineseRun = try! NSRegularExpression(pattern: "[\\u4e00-\\u9fa5]+")
+                                          "可以", "因为", "所以", "如果", "现在", "时候",
+                                          "一个", "这个", "不是", "知道", "觉得", "感觉"]
 
-    static func isStop(_ gram: String) -> Bool {
-        if stopWords.contains(gram) { return true }
-        return gram.contains(where: { stopChars.contains($0) })
+    static func isStop(_ word: String) -> Bool {
+        stopWords.contains(word)
     }
 
+    /// 分词计数取 TOP-N（单字与停用词剔除）
     static func keywords(_ texts: [String], limit: Int = 50) -> [(key: String, value: Int)] {
-        var gram2: [String: Int] = [:]
-        var gram3: [String: Int] = [:]
+        var counts: [String: Int] = [:]
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.setLanguage(.simplifiedChinese)
         for text in texts {
-            for match in chineseRun.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
-                guard let r = Range(match.range, in: text) else { continue }
-                let chars = Array(String(text[r]))
-                for i in 0..<max(0, chars.count - 1) {
-                    let g2 = String(chars[i...min(i + 1, chars.count - 1)])
-                    if g2.count == 2, !isStop(g2) { gram2[g2, default: 0] += 1 }
+            guard !text.isEmpty else { continue }
+            tokenizer.string = text
+            tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+                let word = String(text[range])
+                if word.count >= 2, !isStop(word) {
+                    counts[word, default: 0] += 1
                 }
-                for i in 0..<max(0, chars.count - 2) {
-                    let g3 = String(chars[i...min(i + 2, chars.count - 1)])
-                    if g3.count == 3, !isStop(g3) { gram3[g3, default: 0] += 1 }
-                }
+                return true
             }
         }
-        // 3-gram(≥2) 压制其最优 2-gram 子串（对齐 Android 逻辑）
-        var suppressed = Set<String>()
-        for (g3, c3) in gram3 where c3 >= 2 {
-            for i in 0...1 {
-                let sub = String(Array(g3)[i...i + 1])
-                if let c2 = gram2[sub], Double(c3) >= Double(c2) * 0.7 {
-                    suppressed.insert(sub)
-                }
-            }
-        }
-        var result: [(String, Int)] = []
-        for (g3, c3) in gram3 where c3 >= 2 { result.append((g3, c3)) }
-        for (g2, c2) in gram2 where c2 >= 2 && !suppressed.contains(g2) { result.append((g2, c2)) }
-        return result.sorted { $0.1 > $1.1 }.prefix(limit).map { ($0.0, $0.1) }
+        return counts.sorted { $0.value > $1.value }.prefix(limit).map { ($0.key, $0.value) }
     }
 }
 
-/// 简易流式布局（词云/标签用）
+/// 换行流式布局（Apple SwiftUI Layout 协议标准实现，
+/// 替换此前 alignmentGuide + 跨渲染可变状态的 hack——那版在重渲染时会残留错位）
 struct FlowLayoutView: View {
     let items: [String]
 
     var body: some View {
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-        return GeometryReader { geo in
-            ZStack(alignment: .topLeading) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    Text(item)
-                        .font(.caption)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Color.blue.opacity(0.1), in: Capsule())
-                        .alignmentGuide(.leading) { d in
-                            if abs(width - d.width) > geo.size.width {
-                                width = 0
-                                height -= d.height + 6
-                            }
-                            let result = width
-                            if item == items.last { width = 0 } else { width -= d.width + 6 }
-                            return result
-                        }
-                        .alignmentGuide(.top) { _ in
-                            let result = height
-                            if item == items.last { height = 0 }
-                            return result
-                        }
-                }
+        FlowLayout(spacing: 6) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                Text(item)
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.blue.opacity(0.1), in: Capsule())
             }
         }
-        .frame(height: CGFloat((items.count / 6 + 1)) * 34)
+    }
+}
+
+/// 流式换行布局（Layout 协议：测量→逐行放置）
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: width == .infinity ? x : width, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            view.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: .unspecified)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 
