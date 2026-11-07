@@ -12,6 +12,12 @@ struct SearchPage: View {
     @State private var suggestTask: Task<Void, Never>?
     @State private var path = NavigationPath()
 
+    // 搜索历史（Android SearchPage：可清空/删除）
+    @State private var history: [String] = []
+    @State private var historyExpanded = false
+    // 贴子排序（Android SearchThreadSortType：2 相关 / 5 最新 / 0 最旧）
+    @State private var threadSort = 2
+
     // 三类结果
     @State private var threadResults: [WebSearchThreadResponse.Thread] = []
     @State private var forumResults: [WebSearchForumResponse.Forum] = []
@@ -44,6 +50,7 @@ struct SearchPage: View {
             // 切范围时若已有结果则立即重搜
             if !lastQuery.isEmpty { Task { await search() } }
         }
+        .onAppear { history = SearchStore.all() }
     }
 
     private var searchBar: some View {
@@ -55,6 +62,21 @@ struct SearchPage: View {
                 .autocorrectionDisabled()
                 .onSubmit { Task { await search() } }
                 .onChange(of: keyword) { _ in scheduleSuggest() }
+            if scope == .thread {
+                // 贴子排序（Android：按相关/最新/最旧）
+                Menu {
+                    Picker("排序", selection: $threadSort) {
+                        Text("按相关").tag(2)
+                        Text("按最新").tag(5)
+                        Text("按最旧").tag(0)
+                    }
+                    .onChange(of: threadSort) { _ in
+                        if !lastQuery.isEmpty { Task { await search() } }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down").foregroundStyle(.secondary)
+                }
+            }
             if !keyword.isEmpty {
                 Button { clearAll() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -65,6 +87,42 @@ struct SearchPage: View {
         .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 10))
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+
+    /// 搜索历史区（keyword 为空时显示）
+    @ViewBuilder
+    private var historySection: some View {
+        if !history.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("搜索历史").font(.footnote.weight(.medium)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        SearchStore.clear()
+                        history = []
+                    } label: {
+                        Image(systemName: "trash").font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                let words = historyExpanded ? history : Array(history.prefix(6))
+                FlowWordList(words: words) { word in
+                    keyword = word
+                    Task { await search() }
+                } onDelete: { word in
+                    SearchStore.remove(word)
+                    history = SearchStore.all()
+                }
+                if history.count > 6 {
+                    Button(historyExpanded ? "收起" : "展开全部") {
+                        historyExpanded.toggle()
+                    }
+                    .font(.footnote)
+                    .padding(.horizontal, 16)
+                }
+            }
+            .padding(.vertical, 4)
+        }
     }
 
     private func clearAll() {
@@ -82,7 +140,10 @@ struct SearchPage: View {
         if isSearching {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let err = errorText, resultsEmpty {
-            UnavailableView(title: "搜索失败", systemImage: "magnifyingglass", description: err)
+            VStack(spacing: 0) {
+                historySection
+                UnavailableView(title: "搜索失败", systemImage: "magnifyingglass", description: err)
+            }
         } else if !suggestions.isEmpty && resultsEmpty {
             List(suggestions, id: \.self) { s in
                 Button {
@@ -95,8 +156,11 @@ struct SearchPage: View {
             }
             .listStyle(.plain)
         } else if resultsEmpty {
-            UnavailableView(title: "输入关键词开始搜索", systemImage: "magnifyingglass",
-                            description: "支持搜索帖子、吧与用户")
+            ScrollView {
+                historySection
+                UnavailableView(title: "输入关键词开始搜索", systemImage: "magnifyingglass",
+                                description: "支持搜索帖子、吧与用户")
+            }
         } else {
             resultList
         }
@@ -230,13 +294,16 @@ struct SearchPage: View {
         guard !word.isEmpty else { return }
         suggestions = []
         lastQuery = word
+        SearchStore.add(word)
+        history = SearchStore.all()
         isSearching = true
         defer { isSearching = false }
         errorText = nil
         switch scope {
         case .thread:
             do {
-                let resp = try await TiebaJSONClient.shared.searchThread(keyword: word, page: 1)
+                let resp = try await TiebaJSONClient.shared.searchThread(keyword: word, page: 1,
+                                                                         sort: threadSort)
                 threadResults = resp.data?.post_list ?? []
                 if threadResults.isEmpty { errorText = "没有找到相关帖子" }
             } catch {

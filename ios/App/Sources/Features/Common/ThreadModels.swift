@@ -55,10 +55,16 @@ extension Tieba_ThreadInfo {
     }
 
     /// 缩略图列表（最多 3 张，对应 FeedCard ThreadMedia）
+    /// 图片加载模式（Android HabitSettings）：1 全部原图（origin 优先）/ 2 全部不加载
     var mediaURLs: [URL] {
-        media.prefix(3).compactMap { m in
-            // Android ImageUtil.getUrl(isSmallPic=true)：bigPic > srcPic > originPic 第一个非空
-            let candidates = [m.bigPic, m.srcPic, m.originPic]
+        let mode = UserDefaults.standard.integer(forKey: "image_load_mode")
+        guard mode != 2 else { return [] }
+        return media.prefix(3).compactMap { m in
+            // Android ImageUtil.getUrl(isSmallPic=true)：bigPic > srcPic > originPic 第一个非空；
+            // 全部原图模式 origin 优先
+            let candidates = mode == 1
+                ? [m.originPic, m.bigPic, m.srcPic]
+                : [m.bigPic, m.srcPic, m.originPic]
             let urlStr = candidates.first { !$0.isEmpty } ?? ""
             return urlStr.isEmpty ? nil : URL(string: urlStr)
         }

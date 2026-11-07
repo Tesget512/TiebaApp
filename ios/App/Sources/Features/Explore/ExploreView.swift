@@ -66,11 +66,15 @@ struct ExploreView: View {
 private struct RecommendFeedView: View {
     @Binding var path: NavigationPath
     @State private var threads: [Tieba_ThreadInfo] = []
+    /// 不感兴趣理由（tid → dislikeResource，Android ThreadPersonalized 1:1）
+    @State private var dislikeResources: [Int64: [Tieba_DislikeReason]] = [:]
+    @State private var followedForumIds: Set<Int64> = []
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var page = 1
     @State private var hasMore = true
     @State private var errorText: String?
+    @ObservedObject private var prefs = AppPreferences.shared
 
     var body: some View {
         Group {
@@ -81,17 +85,38 @@ private struct RecommendFeedView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ThreadListView(threads: threads, isLoadingMore: isLoadingMore) { t in
+                        ThreadListView(threads: visibleThreads, isLoadingMore: isLoadingMore) { t in
                             openThread(t)
                         } onLoadMore: {
                             await loadMore()
+                        } dislikeProvider: { tid in
+                            dislikeResources[tid] ?? []
+                        } onDislike: { t in
+                            threads.removeAll { $0.tid == t.tid }
+                            dislikeResources[t.tid] = nil
                         }
                     }
                 }
                 .refreshable { await load(refresh: true) }
             }
         }
-        .task { if threads.isEmpty { await load(refresh: true) } }
+        .task {
+            if threads.isEmpty { await load(refresh: true) }
+            if prefs.onlyRecommendFollowed, followedForumIds.isEmpty { await loadFollowedForums() }
+        }
+    }
+
+    /// 只推荐已关注的吧开关生效的可见列表
+    private var visibleThreads: [Tieba_ThreadInfo] {
+        guard prefs.onlyRecommendFollowed, !followedForumIds.isEmpty else { return threads }
+        return threads.filter { followedForumIds.contains($0.forumID) }
+    }
+
+    /// 用户关注的吧列表（getforumlist）
+    private func loadFollowedForums() async {
+        if let forums = try? await TiebaExtraEndpoints.historyForum(client: .shared) {
+            followedForumIds = Set(forums.historyForum.map(\.forumID))
+        }
     }
 
     private func openThread(_ t: Tieba_ThreadInfo) {
@@ -108,6 +133,11 @@ private struct RecommendFeedView: View {
             let data = try await TiebaEndpoints.personalized(
                 client: .shared, loadType: refresh ? 1 : 2, page: page)
             let list = data.threadList.filter { !$0.isLive } // 过滤直播帖（对齐 Android）
+            // 不感兴趣理由（Android threadPersonalized join by tid）
+            if refresh { dislikeResources = [:] }
+            for p in data.threadPersonalized where !p.dislikeResource.isEmpty {
+                dislikeResources[Int64(bitPattern: p.tid)] = p.dislikeResource
+            }
             threads = refresh ? list : threads + list
             hasMore = !list.isEmpty
             errorText = nil
@@ -261,8 +291,9 @@ struct RouteView: View {
         switch route {
         case .forum(let name):
             ForumPage(forumName: name)
-        case .thread(let id, let title, let forumId):
-            ThreadPage(threadID: id, title: title, forumId: forumId)
+        case .thread(let id, let title, let forumId, let onlyLz, let desc):
+            ThreadPage(threadID: id, title: title, forumId: forumId,
+                       initialOnlyLz: onlyLz, initialSortDesc: desc)
         case .user(let uid):
             UserProfilePage(uid: uid)
         case .hot:
@@ -289,6 +320,8 @@ struct RouteView: View {
             PhotoViewPage(urls: urls, initialIndex: index)
         case .search:
             SearchPage()
+        case .forumSearch(let name):
+            ForumSearchPostPage(forumName: name)
         }
     }
 }

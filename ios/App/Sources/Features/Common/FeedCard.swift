@@ -35,7 +35,12 @@ struct AvatarView: View {
 /// 帖子卡片：三段式（header / content / action），对应 Android FeedCard
 struct FeedCard: View {
     let thread: Tieba_ThreadInfo
+    /// 不感兴趣理由（推荐流有值时显示 ↓ 按钮，Android DislikeBtn 1:1）
+    var dislikeReasons: [Tieba_DislikeReason] = []
+    var onDislike: (() -> Void)?
     @ObservedObject private var prefs = AppPreferences.shared
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var dislikeClickTime: Int64 = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -80,6 +85,37 @@ struct FeedCard: View {
                 }
             }
             Spacer()
+            if !dislikeReasons.isEmpty {
+                // 不感兴趣（Android DislikeBtn：↓ 图标 → 理由网格 → 提交）
+                Menu {
+                    ForEach(dislikeReasons, id: \.dislikeID) { reason in
+                        Button {
+                            Task { await submitDislike(reason) }
+                        } label: {
+                            Text(reason.dislikeReason.isEmpty ? "不感兴趣" : reason.dislikeReason)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(4)
+                }
+            }
+        }
+    }
+
+    /// 提交不感兴趣（/c/c/excellent/submitDislike）并由列表移除该卡
+    private func submitDislike(_ reason: Tieba_DislikeReason) async {
+        if dislikeClickTime == 0 { dislikeClickTime = Int64(Date().timeIntervalSince1970 * 1000) }
+        do {
+            try await TiebaWriteEndpoints.submitDislike(
+                threadId: thread.tid, forumId: thread.forumID,
+                reasons: [(id: reason.dislikeID, extra: reason.extra)],
+                clickTime: dislikeClickTime)
+            onDislike?()
+        } catch {
+            onDislike?() // 提交失败也本地移除（对齐 Android Dislike.Success 语义）
         }
     }
 
@@ -130,18 +166,22 @@ struct FeedCard: View {
     @ViewBuilder
     private var coverImage: some View {
         let urls = thread.mediaURLs
+        // 夜间模式压暗缩略图（Android night mode 缩略图压暗）
+        let dim = colorScheme == .dark && prefs.imageDarkenWhenNightMode
         if urls.count > 1 {
             HStack(spacing: 4) {
                 ForEach(Array(urls.prefix(3).enumerated()), id: \.offset) { _, u in
                     RemoteImage(url: u)
                         .frame(width: 84, height: 56)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .brightness(dim ? 0.72 : 1)
                 }
             }
         } else if let single = urls.first {
             RemoteImage(url: single)
                 .frame(width: 108, height: 72)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .brightness(dim ? 0.72 : 1)
         } else if let vThumb = thread.videoThumbnailURL {
             RemoteImage(url: vThumb)
                 .frame(width: 108, height: 72)
@@ -151,6 +191,7 @@ struct FeedCard: View {
                         .font(.title2)
                         .foregroundStyle(.white)
                 }
+                .brightness(dim ? 0.72 : 1)
         }
     }
 
@@ -175,6 +216,9 @@ struct ThreadListView: View {
     var onOpenThread: (Tieba_ThreadInfo) -> Void
     /// 是否在末尾展示"加载更多"（由外部 `onLoadMore` 驱动）
     var onLoadMore: (() async -> Void)?
+    /// 不感兴趣：tid → 理由列表（推荐流传入，其他页缺省）
+    var dislikeProvider: ((Int64) -> [Tieba_DislikeReason])?
+    var onDislike: ((Tieba_ThreadInfo) -> Void)?
     @ObservedObject private var prefs = AppPreferences.shared
     @ObservedObject private var blocker = BlockManager.shared
 
@@ -199,7 +243,9 @@ struct ThreadListView: View {
         LazyVStack(spacing: 0) {
             ForEach(visibleThreads, id: \.tid) { t in
                 Button { onOpenThread(t) } label: {
-                    FeedCard(thread: t)
+                    FeedCard(thread: t,
+                             dislikeReasons: dislikeProvider?(t.tid) ?? [],
+                             onDislike: onDislike != nil ? { onDislike?(t) } : nil)
                 }
                 .buttonStyle(.plain)
                 Divider().padding(.leading, 16)

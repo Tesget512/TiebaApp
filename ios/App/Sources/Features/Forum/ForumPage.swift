@@ -44,6 +44,10 @@ struct ForumPage: View {
         .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // 吧内搜索（Android ForumSearchPostPage）
+                NavigationLink(value: AppRoute.forumSearch(name: forumName)) {
+                    Image(systemName: "magnifyingglass")
+                }
                 if appState.isLoggedIn {
                     Button {
                         showNewPost = true

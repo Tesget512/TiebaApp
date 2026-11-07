@@ -17,10 +17,21 @@ struct ProfileView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(account.name).font(.headline)
                                 if let user = profile?.user {
-                                    HStack(spacing: 10) {
-                                        statItem("关注", user.concernNum)
-                                        statItem("粉丝", user.fansNum)
-                                        statItem("发帖", user.postNum)
+                                    HStack(spacing: 14) {
+                                        // 统计可点（对齐 Android UserPage：跳对应列表）
+                                        NavigationLink {
+                                            FollowListView(isFollow: true, uid: Int64(account.uid) ?? 0)
+                                        } label: { statItem("关注", user.concernNum) }
+                                            .buttonStyle(.plain)
+                                        NavigationLink {
+                                            FollowListView(isFollow: false, uid: Int64(account.uid) ?? 0)
+                                        } label: { statItem("粉丝", user.fansNum) }
+                                            .buttonStyle(.plain)
+                                        NavigationLink {
+                                            UserPostListPage(uid: Int64(account.uid) ?? 0,
+                                                             name: account.name, isThread: false)
+                                        } label: { statItem("发帖", user.postNum) }
+                                            .buttonStyle(.plain)
                                     }
                                 } else {
                                     Text("UID: \(account.uid)")
@@ -38,9 +49,31 @@ struct ProfileView: View {
                             Label("我的主页", systemImage: "person.text.rectangle")
                         }
                         NavigationLink {
+                            UserPostListPage(uid: Int64(account.uid) ?? 0, name: account.name,
+                                             isThread: true)
+                        } label: {
+                            Label("我的发帖", systemImage: "doc.text")
+                        }
+                        NavigationLink {
+                            UserPostListPage(uid: Int64(account.uid) ?? 0, name: account.name,
+                                             isThread: false)
+                        } label: {
+                            Label("我的回帖", systemImage: "bubble.right")
+                        }
+                        NavigationLink {
                             MyForumsView()
                         } label: {
                             Label("我的关注吧", systemImage: "square.grid.2x2")
+                        }
+                        NavigationLink {
+                            FollowListView(isFollow: true, uid: Int64(account.uid) ?? 0)
+                        } label: {
+                            Label("关注列表", systemImage: "person.2")
+                        }
+                        NavigationLink {
+                            FollowListView(isFollow: false, uid: Int64(account.uid) ?? 0)
+                        } label: {
+                            Label("粉丝列表", systemImage: "person.2.wave.2")
                         }
                         NavigationLink {
                             EditProfilePage()
@@ -64,6 +97,12 @@ struct ProfileView: View {
                             SettingsView()
                         } label: {
                             Label("设置", systemImage: "gearshape")
+                        }
+                        // 服务中心（Android UserPage 菜单：WebView）
+                        NavigationLink {
+                            WebViewPage(url: URL(string: "https://tieba.baidu.com/mo/q/service/pages/index")!)
+                        } label: {
+                            Label("服务中心", systemImage: "headphones")
                         }
                         NavigationLink {
                             AboutView()

@@ -22,7 +22,13 @@ struct WebViewPage: View {
                     } label: {
                         Image(systemName: "doc.on.doc")
                     }
+                    // 在浏览器内打开（Android WebViewPage 菜单对齐）
                     if url.scheme?.hasPrefix("http") == true {
+                        Button {
+                            UIApplication.shared.open(url)
+                        } label: {
+                            Image(systemName: "safari")
+                        }
                         ShareLink(item: url) {
                             Image(systemName: "square.and.arrow.up")
                         }

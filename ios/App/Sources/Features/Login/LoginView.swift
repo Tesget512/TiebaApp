@@ -42,6 +42,12 @@ struct LoginView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
+                        // 刷新（Android LoginPage 顶栏刷新对齐）
+                        Button {
+                            webViewToken += 1
+                        } label: {
+                            Label("刷新", systemImage: "arrow.clockwise")
+                        }
                         Button(role: .destructive) {
                             Task {
                                 statusText = "正在清除网页登录状态…"

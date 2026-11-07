@@ -16,6 +16,11 @@ struct RootView: View {
         let route: AppRoute
     }
 
+    /// 启动首选页（Android HabitSettings：首页/进吧/消息）
+    private var initialTab: Int {
+        min(max(prefs.startPage, 0), 2)
+    }
+
     /// 夜间主题：跟随系统时取系统色板，否则按用户选择的深色主题判定
     private var usesDarkTheme: Bool {
         if prefs.followSystemNight { return systemColorScheme == .dark }
@@ -42,6 +47,11 @@ struct RootView: View {
         if s < 1.13 { return .xxLarge }
         if s < 1.20 { return .xxxLarge }
         return .accessibility1
+    }
+
+    init() {
+        // 启动首选页（Android HabitSettings：首页/进吧/消息）
+        _selectedTab = State(initialValue: min(max(AppPreferences.shared.startPage, 0), 2))
     }
 
     var body: some View {
@@ -86,6 +96,28 @@ struct RootView: View {
                     }
             }
             .tint(tintColor)
+        }
+        // 深链（Android tblite:// scheme 对齐）：tblite://thread/{tid}、tblite://forum/{kw}
+        .onOpenURL { url in
+            guard url.scheme == "tblite" else { return }
+            let host = url.host ?? ""
+            let key = url.pathComponents.count > 1 ? url.pathComponents[1] : ""
+            switch host {
+            case "thread":
+                if let tid = Int64(key) {
+                    externalRoute = ExternalRoute(route: .thread(id: tid, title: "帖子", forumId: 0))
+                }
+            case "forum":
+                if !key.isEmpty {
+                    externalRoute = ExternalRoute(route: .forum(key))
+                }
+            case "history":
+                externalRoute = ExternalRoute(route: .history)
+            case "notifications":
+                selectedTab = 2
+            default:
+                break
+            }
         }
         .task {
             // 启动时请求通知权限并拉一次未读（对应 Android NotifyJobService 的轻量替代）

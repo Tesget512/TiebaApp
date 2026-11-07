@@ -71,6 +71,35 @@ enum TiebaWriteEndpoints {
         return try TiebaJSONClient.decode(MultiSignResponse.self, from: data)
     }
 
+    /// 不感兴趣（对应 Android submitDislikeFlow：dislike = DislikeBean JSON 数组）
+    /// - reasons: 勾选的不感兴趣理由（dislikeId + extra，来自 personalized 响应的 dislikeResource）
+    static func submitDislike(threadId: Int64, forumId: Int64?,
+                              reasons: [(id: UInt32, extra: String)],
+                              clickTime: Int64) async throws {
+        struct DislikeBean: Encodable {
+            let tid: String
+            let dislike_ids: String
+            let fid: String?
+            let click_time: Int64
+            let extra: String
+        }
+        let bean = DislikeBean(
+            tid: "\(threadId)",
+            dislike_ids: reasons.map { "\($0.id)" }.joined(separator: ","),
+            fid: forumId.map { "\($0)" },
+            click_time: clickTime,
+            extra: reasons.map { $0.extra }.joined(separator: ","))
+        let json = String(data: try JSONEncoder().encode([bean]), encoding: .utf8) ?? "[]"
+        var params: [String: String] = ["dislike": json, "dislike_from": "homepage"]
+        if let account = TiebaJSONClient.shared.accountProvider() {
+            params["stoken"] = account.stoken
+        }
+        let data = try await TiebaJSONClient.shared.post(path: "/c/c/excellent/submitDislike",
+                                                         params: params, channel: .official,
+                                                         forceLogin: true)
+        _ = try TiebaJSONClient.decode(SimpleErrorResponse.self, from: data)
+    }
+
     // MARK: - 通知
 
     /// 回复我的 `/c/u/feed/replyme`

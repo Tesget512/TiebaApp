@@ -6,7 +6,8 @@ import SwiftUI
 /// 因此统一用 `navigationDestination(for:)`。
 enum AppRoute: Hashable {
     case forum(String)
-    case thread(id: Int64, title: String, forumId: Int64)
+    case thread(id: Int64, title: String, forumId: Int64,
+                onlyLz: Bool = false, desc: Bool = false) // onlyLz/desc：收藏页自动只看楼主/倒序
     case user(uid: Int64)
     case hot          // 热榜（HotPage）
     case concern      // 关注动态（ConcernPage）
@@ -20,4 +21,5 @@ enum AppRoute: Hashable {
     case analysis(uid: Int64, name: String)                  // 发言分析
     case photoView(urls: [String], index: Int)               // 图片查看器
     case search                                              // 全局搜索（发现页 toolbar 进入）
+    case forumSearch(name: String)                           // 吧内搜索（ForumSearchPostPage）
 }

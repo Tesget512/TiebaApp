@@ -37,6 +37,21 @@ final class AppPreferences: ObservableObject {
     @Published var oksignFailAutoStop: Bool { didSet { d.set(oksignFailAutoStop, forKey: "oksign_fail_auto_stop") } }
     @Published var signDay: Int { didSet { d.set(signDay, forKey: "sign_day") } }
 
+    // MARK: - 使用习惯（对齐 Android HabitSettingsPage）
+    /// 图片加载：0 智能加载 / 1 全部原图 / 2 全部不加载
+    @Published var imageLoadMode: Int { didSet { d.set(imageLoadMode, forKey: "image_load_mode") } }
+    /// 图片水印：0 无 / 1 用户名 / 2 吧名
+    @Published var watermarkType: Int { didSet { d.set(watermarkType, forKey: "watermark_type") } }
+    /// 进吧页吧列表排序：0 热度 / 1 发帖时间 / 2 等级 / 3 名称
+    @Published var homeForumSort: Int { didSet { d.set(homeForumSort, forKey: "home_forum_sort") } }
+    @Published var showRecentForums: Bool { didSet { d.set(showRecentForums, forKey: "show_recent_forums") } }
+    /// 启动首选页：0 发现 / 1 进吧 / 2 通知
+    @Published var startPage: Int { didSet { d.set(startPage, forKey: "start_page") } }
+    @Published var storeAutoLz: Bool { didSet { d.set(storeAutoLz, forKey: "store_auto_lz") } }
+    @Published var storeAutoDesc: Bool { didSet { d.set(storeAutoDesc, forKey: "store_auto_desc") } }
+    /// 只推荐已关注的吧（推荐流过滤）
+    @Published var onlyRecommendFollowed: Bool { didSet { d.set(onlyRecommendFollowed, forKey: "only_recommend_followed") } }
+
     private init() {
         theme = d.string(forKey: "theme") ?? "tieba"
         darkTheme = d.string(forKey: "dark_theme") ?? "grey_dark"
@@ -58,6 +73,14 @@ final class AppPreferences: ObservableObject {
         oksignUseOfficialOksign = d.object(forKey: "oksign_use_official_oksign") as? Bool ?? true
         oksignFailAutoStop = d.object(forKey: "oksign_fail_auto_stop") as? Bool ?? true
         signDay = d.object(forKey: "sign_day") as? Int ?? -1
+        imageLoadMode = d.object(forKey: "image_load_mode") as? Int ?? 0
+        watermarkType = d.object(forKey: "watermark_type") as? Int ?? 0
+        homeForumSort = d.object(forKey: "home_forum_sort") as? Int ?? 0
+        showRecentForums = d.object(forKey: "show_recent_forums") as? Bool ?? true
+        startPage = d.object(forKey: "start_page") as? Int ?? 0
+        storeAutoLz = d.object(forKey: "store_auto_lz") as? Bool ?? false
+        storeAutoDesc = d.object(forKey: "store_auto_desc") as? Bool ?? false
+        onlyRecommendFollowed = d.object(forKey: "only_recommend_followed") as? Bool ?? false
     }
 }
 

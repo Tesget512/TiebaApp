@@ -219,11 +219,17 @@ final class TiebaJSONClient {
     }
 
     /// 搜帖子 `GET /mo/q/search/thread?word=&pn=&st=...`（对应 Android searchThreadFlow）
-    func searchThread(keyword: String, page: Int, sort: Int = 0) async throws -> WebSearchThreadResponse {
+    /// - sort: 0=最旧 / 2=相关 / 5=最新（Android SearchThreadSortType）
+    /// - filterTT: tt 参数（1=仅主题 / 2=全部，ForumSearchPostFilterType）
+    /// - forumName: 限定吧名（吧内搜索）
+    func searchThread(keyword: String, page: Int, sort: Int = 0, filterTT: Int = 1,
+                      forumName: String? = nil) async throws -> WebSearchThreadResponse {
+        var query = ["word": keyword, "pn": "\(page)", "st": "\(sort)", "tt": "\(filterTT)",
+                     "ct": "1", "is_use_zonghe": "1", "cv": "99.9.101"]
+        if let forumName, !forumName.isEmpty { query["fname"] = forumName }
         let data = try await webGet(
             path: "/mo/q/search/thread",
-            query: ["word": keyword, "pn": "\(page)", "st": "\(sort)", "tt": "1",
-                    "ct": "1", "is_use_zonghe": "1", "cv": "99.9.101"],
+            query: query,
             referer: "https://tieba.baidu.com/mo/q/hybrid/search?keyword=\(keyword)")
         return try TiebaJSONClient.decode(WebSearchThreadResponse.self, from: data)
     }

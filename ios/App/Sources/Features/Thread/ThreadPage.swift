@@ -8,6 +8,8 @@ import AVKit
 struct PbContentView: View {
     let contents: [Tieba_PbContent]
     var fontSize: Font = .subheadline
+    /// 沉浸阅读：不渲染图片/视频段
+    var hideImages: Bool = false
 
     private enum Item {
         case text(String)
@@ -40,11 +42,13 @@ struct PbContentView: View {
                 EmoticonManager.shared.register(id: c.text, name: c.c)
                 textBuffer += "#(\(c.c))"
             case 3, 20:
+                guard !hideImages else { break }
                 flush()
                 result.append(.image(url: Self.picURL(c), aspect: Self.aspect(c)))
             case 4:
                 textBuffer += "@\(c.text) "
             case 5:
+                guard !hideImages else { break }
                 flush()
                 if c.link.isEmpty {
                     // 无直链：text 为网页地址（Android 跳网页分支）
@@ -99,9 +103,14 @@ struct PbContentView: View {
         }
     }
 
-    /// 图片 URL：originSrc > bigCdnSrc > bigSrc > cdnSrc > src（Android ImageUtil.getUrl 顺序）
+    /// 图片 URL：originSrc > bigCdnSrc > bigSrc > cdnSrc > src（Android ImageUtil.getUrl 顺序）；
+    /// 全部原图模式 origin 优先、全部不加载返回 nil
     static func picURL(_ c: Tieba_PbContent) -> URL? {
-        let candidates = [c.originSrc, c.bigCdnSrc, c.bigSrc, c.cdnSrc, c.src]
+        let mode = UserDefaults.standard.integer(forKey: "image_load_mode")
+        guard mode != 2 else { return nil }
+        let candidates = mode == 1
+            ? [c.originSrc, c.bigCdnSrc, c.bigSrc, c.cdnSrc, c.src]
+            : [c.bigCdnSrc, c.bigSrc, c.originSrc, c.cdnSrc, c.src]
         let s = candidates.first { !$0.isEmpty } ?? ""
         return s.isEmpty ? nil : URL(string: s)
     }
@@ -174,6 +183,9 @@ struct ThreadPage: View {
     let threadID: Int64
     let title: String
     var forumId: Int64 = 0
+    /// 初始只看楼主/倒序（收藏页「自动只看楼主/倒序」设置传入）
+    var initialOnlyLz = false
+    var initialSortDesc = false
 
     @EnvironmentObject private var appState: AppState
     @State private var posts: [Tieba_Post] = []
@@ -184,6 +196,10 @@ struct ThreadPage: View {
     @State private var nextPage = 0
     @State private var hasMore = true
     @State private var seeLz = false
+    /// 已加载的最低页（pn，正序时支持「加载上一页」）
+    @State private var lowestPage = 0
+    /// 沉浸阅读（Android immersiveMode：隐藏图片与楼中楼预览，纯文字阅读）
+    @State private var immersive = false
     /// 从响应里补全的 forum id（首页请求可能未带）
     @State private var resolvedForumId: Int64 = 0
     @State private var isStored = false
@@ -203,6 +219,10 @@ struct ThreadPage: View {
     @State private var pollInfo: Tieba_PollInfo?
     /// 楼层列表首个楼层 pid（回复主题作者用）
     @State private var threadAuthorName = ""
+    /// 指定楼层回复（楼层 contextMenu「回复」）
+    @State private var replyToFloor: Tieba_Post?
+    /// 回复完成后滚动锚点
+    @State private var scrollTarget: String?
 
     /// 楼中楼导航目标
     struct FloorSelection: Hashable {
@@ -236,6 +256,12 @@ struct ThreadPage: View {
                         } label: {
                             Label(sortDesc ? "切回正序" : "倒序查看",
                                   systemImage: sortDesc ? "arrow.up" : "arrow.down")
+                        }
+                        Button {
+                            immersive.toggle()
+                        } label: {
+                            Label(immersive ? "退出沉浸阅读" : "沉浸阅读",
+                                  systemImage: immersive ? "text.page" : "book")
                         }
                         Button {
                             showJumpPage = true
@@ -276,7 +302,7 @@ struct ThreadPage: View {
             }
             .navigationDestination(for: FloorSelection.self) { sel in
                 FloorDetailPage(threadId: threadID, postId: sel.postId,
-                                forumId: resolvedForumId, title: "\(sel.floor)楼评论")
+                                forumId: resolvedForumId, title: "\(sel.floor)楼的回复")
             }
             .fullScreenCover(isPresented: $showPhoto) {
                 NavigationStack {
@@ -306,7 +332,20 @@ struct ThreadPage: View {
             }
             .sheet(isPresented: $showReply) {
                 ReplySheet(threadId: threadID, forumId: resolvedForumId,
-                           forumName: forumName.isEmpty ? "" : forumName)
+                           forumName: forumName.isEmpty ? "" : forumName,
+                           postId: Int64(bitPattern: replyToFloor?.id ?? 0),
+                           quoteHint: replyToFloor.map { "回复 @\($0.displayAuthorName)" } ?? "")
+            }
+            .onChange(of: showReply) { showing in
+                // 回复后刷新并滚到自己楼层（对齐 Android 回复成功滚动；sheet 关闭且非楼层回复时刷新）
+                if !showing {
+                    replyToFloor = nil
+                    Task {
+                        await reload()
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        withAnimation { scrollTarget = "threadBottom" }
+                    }
+                }
             }
             .overlay(alignment: .bottom) {
                 if let toast {
@@ -322,7 +361,12 @@ struct ThreadPage: View {
             }
             .task {
                 if resolvedForumId == 0, forumId != 0 { resolvedForumId = forumId }
-                if posts.isEmpty { await reload() }
+                if posts.isEmpty {
+                    // 收藏页「自动只看楼主/倒序」设置（对齐 Android HabitSettings）
+                    seeLz = initialOnlyLz
+                    sortDesc = initialSortDesc
+                    await reload()
+                }
             }
     }
 
@@ -419,23 +463,47 @@ struct ThreadPage: View {
         } else if let err = errorText, posts.isEmpty {
             UnavailableView(title: "加载失败", systemImage: "wifi.exclamationmark", description: err)
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    // 投票组件（对应 Android PollWidget，置于楼层列表顶部）
-                    if let poll = pollInfo {
-                        pollSection(poll)
-                        Divider()
-                    }
-                    ForEach(Array(posts.enumerated()), id: \.offset) { idx, post in
-                        postCard(post, floor: floorNumber(post, index: idx))
-                        Divider()
-                    }
-                    if hasMore {
-                        LoadMoreFooter { await loadMore() }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        // 投票组件（对应 Android PollWidget，置于楼层列表顶部）
+                        if let poll = pollInfo {
+                            pollSection(poll)
+                            Divider()
+                        }
+                        // 正序时支持向上补齐更早页（Android「加载上一页」）
+                        if !sortDesc, lowestPage > 0 {
+                            Button {
+                                Task { await loadPrev() }
+                            } label: {
+                                HStack {
+                                    Spacer()
+                                    if isLoadingMore { ProgressView() }
+                                    Text("加载上一页（第 \(lowestPage) 页）")
+                                        .font(.footnote).foregroundStyle(.blue)
+                                    Spacer()
+                                }
+                                .padding(.vertical, 10)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        ForEach(Array(posts.enumerated()), id: \.offset) { idx, post in
+                            postCard(post, floor: floorNumber(post, index: idx))
+                            Divider()
+                        }
+                        if hasMore {
+                            LoadMoreFooter { await loadMore() }
+                        }
+                        Color.clear.frame(height: 1).id("threadBottom")
                     }
                 }
+                .refreshable { await reload() }
+                .onChange(of: scrollTarget) { target in
+                    guard let target else { return }
+                    proxy.scrollTo(target, anchor: .bottom)
+                    self.scrollTarget = nil
+                }
             }
-            .refreshable { await reload() }
         }
     }
 
@@ -535,6 +603,7 @@ struct ThreadPage: View {
     private func reload() async {
         isLoading = true
         nextPage = 0
+        lowestPage = 0
         hasMore = true
         defer { isLoading = false }
         do {
@@ -580,6 +649,24 @@ struct ThreadPage: View {
         }
     }
 
+    /// 加载上一页（Android「加载上一页」：正序时向上补齐更早的楼层页）
+    private func loadPrev() async {
+        guard !isLoadingMore, !sortDesc, lowestPage > 0 else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            let data = try await TiebaEndpoints.pbPage(
+                client: .shared, threadId: threadID, page: lowestPage - 1, rn: 15,
+                forumId: resolvedForumId, seeLz: seeLz, sortType: 0)
+            var earlier = data.postList
+            earlier.resolveAuthors(AuthorResolver.map(data.userList))
+            posts = earlier + posts
+            lowestPage -= 1
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
     @ViewBuilder
     private func postCard(_ post: Tieba_Post, floor: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -589,35 +676,23 @@ struct ThreadPage: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(post.displayAuthorName)
                         .font(.footnote.weight(.medium))
-                    if post.time > 0 {
-                        Text(formattedTime(fromUnixSeconds: Int64(post.time)))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        if post.time > 0 {
+                            Text(formattedTime(fromUnixSeconds: Int64(post.time)))
+                        }
+                        if !post.author.ipAddress.isEmpty {
+                            Text("IP \(post.author.ipAddress)")
+                        }
                     }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text("\(floor)楼")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Menu {
-                    Button {
-                        UIPasteboard.general.string = post.content.map(\.text).joined()
-                        toast = "已复制楼层内容"
-                    } label: {
-                        Label("复制内容", systemImage: "doc.on.doc")
-                    }
-                    Button {
-                        Task { await report(post) }
-                    } label: {
-                        Label("举报", systemImage: "exclamationmark.bubble")
-                    }
-                    if isMyPost(post) {
-                        Button(role: .destructive) {
-                            Task { await deletePost(post) }
-                        } label: {
-                            Label("删除", systemImage: "trash")
-                        }
-                    }
+                    floorMenuItems(post, floor: floor)
                 } label: {
                     Image(systemName: "ellipsis").font(.caption)
                 }
@@ -626,34 +701,86 @@ struct ThreadPage: View {
             // 图片：点击进查看器
             let pics = post.content.filter { [3, 20].contains(Int($0.type)) }
                 .compactMap { PbContentView.picURL($0)?.absoluteString }
-            PbContentView(contents: post.content)
+            PbContentView(contents: post.content, hideImages: immersive)
                 .overlay {
-                    if !pics.isEmpty {
+                    if !pics.isEmpty, !immersive {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture { openPhoto(pics, 0) }
                     }
                 }
-            HStack(spacing: 16) {
-                LikeButton(threadId: threadID, postId: Int64(bitPattern: post.id),
-                           isLiked: post.agree.hasAgree_p == 1,
-                           count: post.agree.agreeNum)
-                if post.subPostNumber > 0 {
-                    NavigationLink(value: FloorSelection(postId: Int64(bitPattern: post.id), floor: floor)) {
-                        Label("\(post.subPostNumber) 条回复", systemImage: "bubble.right")
-                            .font(.caption)
+            if !immersive {
+                HStack(spacing: 16) {
+                    LikeButton(threadId: threadID, postId: Int64(bitPattern: post.id),
+                               isLiked: post.agree.hasAgree_p == 1,
+                               count: post.agree.agreeNum)
+                    if post.subPostNumber > 0 {
+                        NavigationLink(value: FloorSelection(postId: Int64(bitPattern: post.id), floor: floor)) {
+                            Label("\(post.subPostNumber) 条回复", systemImage: "bubble.right")
+                                .font(.caption)
+                        }
+                    } else {
+                        NavigationLink(value: FloorSelection(postId: Int64(bitPattern: post.id), floor: floor)) {
+                            Label("回复", systemImage: "bubble.right")
+                                .font(.caption)
+                        }
                     }
-                } else {
-                    NavigationLink(value: FloorSelection(postId: Int64(bitPattern: post.id), floor: floor)) {
-                        Label("回复", systemImage: "bubble.right")
-                            .font(.caption)
-                    }
+                    Spacer()
                 }
-                Spacer()
+                .foregroundStyle(.secondary)
             }
-            .foregroundStyle(.secondary)
         }
         .padding(16)
+        // 楼层长按菜单（对齐 Android LongClickMenu：复制/回复/收藏到此楼/举报/删除）
+        .contextMenu { floorMenuItems(post, floor: floor) }
+    }
+
+    /// 楼层菜单项（Menu 与 contextMenu 共用）
+    @ViewBuilder
+    private func floorMenuItems(_ post: Tieba_Post, floor: Int) -> some View {
+        Button {
+            UIPasteboard.general.string = post.content.map(\.text).joined()
+            toast = "已复制楼层内容"
+        } label: {
+            Label("复制内容", systemImage: "doc.on.doc")
+        }
+        Button {
+            replyToFloor = post
+            showReply = true
+        } label: {
+            Label("回复", systemImage: "arrowshape.turn.up.left")
+        }
+        Button {
+            Task { await storeFloor(post) }
+        } label: {
+            Label("收藏到此楼", systemImage: "star")
+        }
+        Button {
+            Task { await report(post) }
+        } label: {
+            Label("举报", systemImage: "exclamationmark.bubble")
+        }
+        if isMyPost(post) {
+            Button(role: .destructive) {
+                Task { await deletePost(post) }
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
+        }
+    }
+
+    /// 收藏到此楼（Android addStore with pid）
+    private func storeFloor(_ post: Tieba_Post) async {
+        guard appState.isLoggedIn, let account = appState.account else { toast = "请先登录"; return }
+        if AppPreferences.shared.safeMode { toast = "安全模式已开启，写操作被拦截"; return }
+        do {
+            try await TiebaWriteEndpoints.addStore(threadId: threadID,
+                                                   postId: Int64(bitPattern: post.id),
+                                                   tbs: account.tbs)
+            toast = post.floor > 0 ? "已收藏到 \(Int(post.floor))楼" : "已收藏到此楼"
+        } catch {
+            toast = error.localizedDescription
+        }
     }
 }
 
@@ -673,6 +800,8 @@ struct FloorDetailPage: View {
     @State private var page = 1
     @State private var hasMore = false
     @State private var replyTarget: ReplyTarget?
+    @State private var showSubReport = false
+    @State private var subReportURL: URL?
     @EnvironmentObject private var appState: AppState
 
     /// 楼中楼回复目标
@@ -744,6 +873,11 @@ struct FloorDetailPage: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
+        .sheet(isPresented: $showSubReport) {
+            if let subReportURL {
+                NavigationStack { WebViewPage(url: subReportURL) }
+            }
+        }
         .task { if subPosts.isEmpty { await reload() } }
     }
 
@@ -770,6 +904,66 @@ struct FloorDetailPage: View {
             }
         }
         .padding(.vertical, 4)
+        // 楼中楼长按菜单（对齐 Android SubPostItem LongClickMenu：复制/回复/举报/删除）
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = sub.content.map(\.text).joined()
+            } label: {
+                Label("复制内容", systemImage: "doc.on.doc")
+            }
+            Button {
+                replyTarget = FloorDetailPage.ReplyTarget(
+                    postId: postId, subPostId: Int64(bitPattern: sub.id),
+                    hint: "回复 @\(sub.displayAuthorName)")
+            } label: {
+                Label("回复", systemImage: "arrowshape.turn.up.left")
+            }
+            Button {
+                Task { await reportSub(sub) }
+            } label: {
+                Label("举报", systemImage: "exclamationmark.bubble")
+            }
+            Button(role: .destructive) {
+                Task { await deleteSub(sub) }
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
+        }
+    }
+
+    /// 举报楼中楼（checkjubao）
+    private func reportSub(_ sub: Tieba_SubPostList) async {
+        guard appState.isLoggedIn else { return }
+        do {
+            let url = try await TiebaWriteEndpoints.checkReport(postId: "\(bitPatternCompat(sub.id))")
+            if !url.isEmpty, let u = URL(string: url) {
+                subReportURL = u
+                showSubReport = true
+            }
+        } catch { }
+    }
+
+    /// 删除楼中楼（层主或楼主）
+    private func deleteSub(_ sub: Tieba_SubPostList) async {
+        guard appState.isLoggedIn, let account = appState.account else { return }
+        if AppPreferences.shared.safeMode { return }
+        do {
+            try await TiebaWriteEndpoints.delPost(
+                forumId: forumId, forumName: "",
+                threadId: threadId, postId: bitPatternCompat(sub.id),
+                tbs: account.tbs, delMyPost: isMySub(sub))
+            subPosts.removeAll { $0.id == sub.id }
+        } catch { }
+    }
+
+    private func isMySub(_ sub: Tieba_SubPostList) -> Bool {
+        guard let uidStr = appState.account?.uid, let uid = Int64(uidStr) else { return false }
+        return sub.author.id == uid
+    }
+
+    /// SubPostList.id 是 UInt64 → Int64（位模式保持）
+    private func bitPatternCompat(_ v: UInt64) -> Int64 {
+        Int64(bitPattern: v)
     }
 
     private func reload() async {
@@ -935,15 +1129,17 @@ struct ReplySheet: View {
         }
     }
 
-    /// 图片上传：PhotosPicker → 压缩 JPEG → uploadPicture → 插入 #(pic,id,w,h)
+    /// 图片上传：PhotosPicker → 水印 → 压缩 JPEG → uploadPicture → 插入 #(pic,id,w,h)
     /// （对应 Android ImageUploader + ReplyPage.kt:328 的插入格式）
     private func uploadPicked(_ item: PhotosPickerItem?) async {
         guard let item, !uploading else { return }
         guard let data = try? await item.loadTransferable(type: Data.self),
-              let uiImage = UIImage(data: data) else {
+              let original = UIImage(data: data) else {
             errorText = "图片读取失败"
             return
         }
+        // 图片水印（Android HabitSettings：无/用户名/吧名）
+        let uiImage = applyWatermark(original)
         // 压缩到 512KB 以内（Android DEFAULT_CHUNK_SIZE=512000）
         var jpeg = uiImage.jpegData(compressionQuality: 0.9)
         var quality: CGFloat = 0.9
@@ -965,6 +1161,37 @@ struct ReplySheet: View {
             text += result.contentCode
         } catch {
             errorText = "上传失败: \(error.localizedDescription)"
+        }
+    }
+
+    /// 图片水印（Android 图片添加水印：0 无 / 1 用户名 / 2 吧名）
+    private func applyWatermark(_ image: UIImage) -> UIImage {
+        let prefs = AppPreferences.shared
+        var text = ""
+        switch prefs.watermarkType {
+        case 1: text = appState.account?.name ?? ""
+        case 2: text = forumName.isEmpty ? "百度贴吧" : forumName
+        default: return image
+        }
+        guard !text.isEmpty else { return image }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = image.scale
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(at: .zero)
+            let shadow = NSShadow()
+            shadow.shadowColor = UIColor.black.withAlphaComponent(0.5)
+            shadow.shadowBlurRadius = 2
+            shadow.shadowOffset = CGSize(width: 1, height: 1)
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: max(14, image.size.width / 24),
+                                         weight: .medium),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.55),
+                .shadow: shadow,
+            ]
+            let size = (text as NSString).size(withAttributes: attrs)
+            let origin = CGPoint(x: image.size.width - size.width - 12,
+                                 y: image.size.height - size.height - 12)
+            (text as NSString).draw(at: origin, withAttributes: attrs)
         }
     }
 

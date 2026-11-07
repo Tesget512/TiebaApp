@@ -53,6 +53,30 @@ struct SettingsView: View {
                 }
             }
 
+            // 使用习惯（对齐 Android HabitSettingsPage）
+            Section("使用习惯") {
+                Picker("图片加载", selection: $prefs.imageLoadMode) {
+                    Text("智能加载").tag(0)
+                    Text("全部原图").tag(1)
+                    Text("全部不加载").tag(2)
+                }
+                Picker("图片水印", selection: $prefs.watermarkType) {
+                    Text("无水印").tag(0)
+                    Text("用户名水印").tag(1)
+                    Text("吧名水印").tag(2)
+                }
+                Picker("启动首选页", selection: $prefs.startPage) {
+                    Text("发现").tag(0)
+                    Text("进吧").tag(1)
+                    Text("通知").tag(2)
+                }
+                Toggle("收藏贴自动只看楼主", isOn: $prefs.storeAutoLz)
+                Toggle("收藏贴自动倒序", isOn: $prefs.storeAutoDesc)
+                Toggle("只推荐已关注的吧", isOn: $prefs.onlyRecommendFollowed)
+                Toggle("夜间模式压暗缩略图", isOn: $prefs.imageDarkenWhenNightMode)
+                Toggle("显示最近访问吧", isOn: $prefs.showRecentForums)
+            }
+
             Section("其他") {
                 Toggle("隐藏媒体（图片/视频）", isOn: $prefs.hideMedia)
                 ClearCacheButton()
@@ -399,6 +423,13 @@ struct AccountManageView: View {
                 Section("当前账号") {
                     Button("复制 BDUSS") {
                         UIPasteboard.general.string = account.bduss
+                    }
+                    // 修改用户名（Android AccountManagePage：跳百度网页）
+                    NavigationLink {
+                        WebViewPage(url: URL(string:
+                            "https://wappass.baidu.com/static/manage-chunk/change-username.html#/showUsername")!)
+                    } label: {
+                        Text("修改用户名")
                     }
                 }
                 Section("小尾巴") {

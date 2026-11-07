@@ -298,3 +298,42 @@
 **已知剩余缺口（下轮）**：搜索历史、吧内搜索（ForumSearchPostPage）、
 浏览历史双 tab（贴子记录/经过贴吧）、推荐流"不感兴趣"、图片加载设置/水印、
 沉浸阅读、收藏贴自动只看楼主/倒序、吧置顶管理、启动首选页。
+
+## 2026-11-07 P16 剩余未对齐功能一次性全量补全 ✅
+
+（用户要求"不要再分批次"；本轮按双端全功能审计清单清完剩余项）
+
+- **搜索历史**（Android SearchPage 1:1）：SearchStore（去重置顶/上限10/清空/长按删除）、
+  词流 chips 区（展开/收起）、发搜索自动入历史；**全局搜索贴子排序**（按相关2/最新5/最旧0，
+  Android SearchThreadSortType）。
+- **吧内搜索 ForumSearchPostPage**（Android 同名页 1:1）：hybrid searchThread + fname 限定吧名；
+  筛选 全部/仅主题（tt 2/1）+ 排序 按时间/按相关（st 1/2）+ 搜索历史 + 分页；
+  吧页 toolbar 放大镜入口（AppRoute.forumSearch）。
+- **浏览历史双 tab**（贴子记录/经过贴吧）+「今天/更早」分组 + 长按删除 + 清空（Android HistoryPage）。
+- **ThreadPage**：
+  - **沉浸阅读**（immersiveMode：隐藏图片/视频段与楼中楼入口，纯文字阅读）；
+  - **楼层长按 contextMenu**（复制/回复/收藏到此楼/举报/删除，与 ⋯ 菜单共用 items）；
+  - **收藏到此楼**（addStore 带 pid）；
+  - **加载上一页**（正序时向上补齐更早页，lowestPage 追踪）；
+  - **回复后刷新并滚动到底部**（对齐 Android 回复成功滚动到自己楼层）；
+  - **IP 属地**显示（author.ip_address，Android getDescText 对齐）；
+  - 楼中楼行**长按 contextMenu**（复制/回复/举报/删除，SubPostItem 对齐）+ 举报内置 WebView；
+  - 楼中楼页标题改「N 楼的回复」。
+- **收藏页**：收藏贴自动只看楼主/自动倒序设置生效（AppRoute.thread 扩 onlyLz/desc 参数）。
+- **进吧页**（Android HomePage）：吧列表排序方式菜单（按热度/发帖时间(吧ID代理)/等级/名称）、
+  显示最近访问吧开关、**吧长按菜单**（置顶/取消置顶(PinnedForumStore)/复制吧名/取消关注
+  (unlikeForum+确认)）；置顶吧排前并带 📌 标。
+- **启动首选页**（发现/进吧/通知）生效；**深链 tblite://**（thread/forum/history/notifications，
+  CFBundleURLTypes + onOpenURL，对齐 Android tblite scheme）。
+- **推荐流不感兴趣**（Android DislikeBtn 1:1）：personalized 响应 threadPersonalized 的
+  dislikeResource 按 tid join → 卡片 ↓ 菜单选理由 → `/c/c/excellent/submitDislike`
+  （dislike 为 DislikeBean JSON 数组：tid/dislike_ids/fid/click_time/extra）→ 本地移除；
+  **只推荐已关注的吧**开关过滤；**夜间模式压暗缩略图**生效。
+- **图片加载模式**（智能加载/全部原图/全部不加载）接入 mediaURLs 与 PbContentView.picURL
+  （原图模式 origin 优先，不加载返回空）；**上传水印**（无/用户名/吧名，UIImage 右下角绘制）。
+- **我的页**：统计卡可点（关注/粉丝/发帖 → 对应列表）、新增 我的发帖/我的回帖/关注列表/粉丝列表
+  直达入口、服务中心（WebView）（Android UserPage 对齐）。
+- **账号管理**：修改用户名（Android 同款百度通行证网页）。
+- **WebViewPage**：新增「在浏览器内打开」；**登录页**顶栏新增「刷新」。
+- 平台性差异保持文档化（桌面快捷方式/电池优化提醒/宽屏 NavigationRail/Monet 取色/
+  CustomTabs/状态栏遮罩——iOS 无等价 API，见 P9 记录）。
