@@ -489,9 +489,9 @@ struct AboutView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "b.circle.fill")
                             .font(.system(size: 64))
-                            .foregroundStyle(Color(hexString: "#2E60B0"))
+                            .foregroundStyle(Color.accentColor)
                         Text("TiebaLite iOS").font(.headline)
-                        Text("v1.1 (P9)").font(.caption).foregroundStyle(.secondary)
+                        Text("v1.1 (P18)").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                 }

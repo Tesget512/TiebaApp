@@ -35,23 +35,4 @@ enum SearchStore {
     }
 }
 
-/// 置顶吧（Android HomePage 吧 item 长按「置顶」；UserDefaults 存吧名列表）
-enum PinnedForumStore {
-    private static let key = "tieba.pinnedForums"
-
-    static func all() -> [String] {
-        UserDefaults.standard.stringArray(forKey: key) ?? []
-    }
-
-    static func isPinned(_ name: String) -> Bool { all().contains(name) }
-
-    static func toggle(_ name: String) {
-        var list = all()
-        if let idx = list.firstIndex(of: name) {
-            list.remove(at: idx)
-        } else {
-            list.insert(name, at: 0)
-        }
-        UserDefaults.standard.set(list, forKey: key)
-    }
-}
+// 置顶吧已迁移至 AppPreferences.pinnedForums（Published 驱动即时重排，见 P18）

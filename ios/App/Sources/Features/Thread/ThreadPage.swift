@@ -10,6 +10,9 @@ struct PbContentView: View {
     var fontSize: Font = .subheadline
     /// 沉浸阅读：不渲染图片/视频段
     var hideImages: Bool = false
+    /// 点击图片回调（对齐 Android PbContentRender：点击进 PhotoViewActivity）
+    /// 参数 = 本段全部图片 URL + 被点图片下标
+    var onImageTap: (([String], Int) -> Void)? = nil
 
     private enum Item {
         case text(String)
@@ -71,16 +74,13 @@ struct PbContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+            ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
                 switch item {
                 case .text(let t):
                     EmoticonText(text: t, font: fontSize, pointSize: fontSizePointSize,
                                  color: .primary)
                 case .image(let url, let aspect):
-                    RemoteImage(url: url, contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                        .aspectRatio(aspect, contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    imageItem(url: url, aspect: aspect, ordinal: imageOrdinal(idx) ?? 0)
                 case .link(let text):
                     Text(text).font(fontSize).foregroundStyle(.blue)
                 case .video(let url, let poster, let aspect):
@@ -104,7 +104,8 @@ struct PbContentView: View {
     }
 
     /// 图片 URL：originSrc > bigCdnSrc > bigSrc > cdnSrc > src（Android ImageUtil.getUrl 顺序）；
-    /// 全部原图模式 origin 优先、全部不加载返回 nil
+    /// 全部原图模式 origin 优先、全部不加载返回 nil；
+    /// URL 解析失败时尝试百分号编码兜底（服务端偶发未转义路径）
     static func picURL(_ c: Tieba_PbContent) -> URL? {
         let mode = UserDefaults.standard.integer(forKey: "image_load_mode")
         guard mode != 2 else { return nil }
@@ -112,7 +113,42 @@ struct PbContentView: View {
             ? [c.originSrc, c.bigCdnSrc, c.bigSrc, c.cdnSrc, c.src]
             : [c.bigCdnSrc, c.bigSrc, c.originSrc, c.cdnSrc, c.src]
         let s = candidates.first { !$0.isEmpty } ?? ""
-        return s.isEmpty ? nil : URL(string: s)
+        guard !s.isEmpty else { return nil }
+        return URL(string: s)
+            ?? URL(string: s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s)
+    }
+
+    /// 本段全部图片 URL（点击查看大图用，顺序与渲染一致）
+    var picUrls: [String] {
+        contents.filter { [3, 20].contains(Int($0.type)) }
+            .compactMap { Self.picURL($0)?.absoluteString }
+    }
+
+    /// item 下标 → 第几张图（查看器初始定位用）
+    private func imageOrdinal(_ itemIndex: Int) -> Int? {
+        var n = 0
+        for (i, item) in items.enumerated() {
+            if case .image = item {
+                if i == itemIndex { return n }
+                n += 1
+            }
+        }
+        return nil
+    }
+
+    /// 单张图片：有点击回调时仅在图片自身热区挂手势（不拦截文字区域点击）
+    @ViewBuilder
+    private func imageItem(url: URL?, aspect: CGFloat, ordinal: Int) -> some View {
+        let img = RemoteImage(url: url, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .aspectRatio(aspect, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        if let onImageTap {
+            img.contentShape(Rectangle())
+                .onTapGesture { onImageTap(picUrls, ordinal) }
+        } else {
+            img
+        }
     }
 
     /// bsize "宽,高" → aspect ratio
@@ -217,6 +253,8 @@ struct ThreadPage: View {
     @State private var pollVoted = false
     /// 主题贴的投票信息（PbPage 响应的 thread.poll_info）
     @State private var pollInfo: Tieba_PollInfo?
+    /// 全帖点赞状态（PbPage 响应的 thread.agree，Android BottomBar 同源）
+    @State private var threadAgree: Tieba_Agree?
     /// 楼层列表首个楼层 pid（回复主题作者用）
     @State private var threadAuthorName = ""
     /// 指定楼层回复（楼层 contextMenu「回复」）
@@ -235,13 +273,48 @@ struct ThreadPage: View {
             .navigationTitle(title.isEmpty ? (forumName.isEmpty ? "帖子" : forumName) : title)
             .navigationBarTitleDisplayMode(.inline)
             .bottomBarHidden()
+            // 底部回复栏（对齐 Android ThreadPage BottomBar 2021-2060：回复输入框 + 全帖点赞）；
+            // 悬浮胶囊样式与主底栏一致（用户验收：不要全宽贴边条）
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if posts.isEmpty || immersive {
+                    Color.clear.frame(height: 0)
+                } else {
+                    HStack(spacing: 12) {
+                        Button {
+                            showReply = true
+                        } label: {
+                            Text("回复")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                                .background(Color(.secondarySystemGroupedBackground),
+                                            in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        LikeButton(threadId: threadID,
+                                   postId: Int64(bitPattern: posts.first?.id ?? 0),
+                                   isLiked: threadAgree?.hasAgree_p == 1,
+                                   count: threadAgree?.agreeNum ?? 0)
+                            .font(.body)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial,
+                                in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 26, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                    }
+                    .shadow(color: .black.opacity(0.16), radius: 10, y: 3)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 4)
+                }
+            }
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button {
-                        showReply = true
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                    }
+                    // 回帖入口在底部回复栏（Android BottomBar 对齐）
                     Menu {
                         Button {
                             seeLz.toggle()
@@ -615,6 +688,7 @@ struct ThreadPage: View {
             posts = data.postList
             posts.resolveAuthors(AuthorResolver.map(data.userList))
             forumName = data.forum.name
+            threadAgree = data.thread.agree
             if resolvedForumId == 0 {
                 resolvedForumId = forumId != 0 ? forumId : data.forum.id
             }
@@ -699,18 +773,47 @@ struct ThreadPage: View {
                 }
                 .foregroundStyle(.secondary)
             }
-            // 图片：点击进查看器
-            let pics = post.content.filter { [3, 20].contains(Int($0.type)) }
-                .compactMap { PbContentView.picURL($0)?.absoluteString }
-            PbContentView(contents: post.content, hideImages: immersive)
-                .overlay {
-                    if !pics.isEmpty, !immersive {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { openPhoto(pics, 0) }
-                    }
-                }
+            // 图片点击进查看器：手势挂在每张图片自身（Android PbContentRender 对齐），
+            // 不再用整层透明 overlay（会拦截文字点击且与渲染条件不一致）
+            PbContentView(contents: post.content, hideImages: immersive,
+                          onImageTap: { urls, index in
+                              guard !immersive else { return }
+                              openPhoto(urls, index)
+                          })
             if !immersive {
+                // 楼中楼预览（对齐 Android ThreadPage.kt:2305：sub_post_number>0 时楼层内直接渲染子回复）
+                let subs = post.subPostList.subPostList.prefix(3)
+                if !subs.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(subs.enumerated()), id: \.offset) { _, sub in
+                            NavigationLink(value: FloorSelection(postId: Int64(bitPattern: post.id),
+                                                                 floor: floor)) {
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text("\(sub.displayAuthorName)：")
+                                        .font(.caption).foregroundStyle(.blue)
+                                    EmoticonText(text: sub.content.map(\.text).joined(),
+                                                 font: .caption, pointSize: 12,
+                                                 color: .primary)
+                                        .lineLimit(2)
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if post.subPostNumber > 3 {
+                            NavigationLink(value: FloorSelection(postId: Int64(bitPattern: post.id),
+                                                                 floor: floor)) {
+                                Text("查看全部 \(post.subPostNumber) 条回复")
+                                    .font(.caption).foregroundStyle(.blue)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 8))
+                }
                 HStack(spacing: 16) {
                     LikeButton(threadId: threadID, postId: Int64(bitPattern: post.id),
                                isLiked: post.agree.hasAgree_p == 1,
@@ -803,6 +906,10 @@ struct FloorDetailPage: View {
     @State private var replyTarget: ReplyTarget?
     @State private var showSubReport = false
     @State private var subReportURL: URL?
+    /// 楼中楼图片查看器（对齐 Android 楼中楼看图）
+    @State private var showPhoto = false
+    @State private var photoUrls: [String] = []
+    @State private var photoIndex = 0
     @EnvironmentObject private var appState: AppState
 
     /// 楼中楼回复目标
@@ -830,7 +937,11 @@ struct FloorDetailPage: View {
                                     Spacer()
                                     Text("\(hostPost.floor)楼").font(.caption2).foregroundStyle(.secondary)
                                 }
-                                PbContentView(contents: hostPost.content, fontSize: .footnote)
+                                PbContentView(contents: hostPost.content, fontSize: .footnote,
+                                              onImageTap: { urls, index in
+                                                  photoUrls = urls; photoIndex = index
+                                                  showPhoto = true
+                                              })
                             }
                             .padding(.vertical, 4)
                         }
@@ -860,6 +971,16 @@ struct FloorDetailPage: View {
                         } label: {
                             Image(systemName: "square.and.pencil")
                         }
+                    }
+                }
+                .fullScreenCover(isPresented: $showPhoto) {
+                    NavigationStack {
+                        PhotoViewPage(urls: photoUrls, initialIndex: photoIndex)
+                            .toolbar {
+                                ToolbarItem(placement: .topBarLeading) {
+                                    Button("关闭") { showPhoto = false }
+                                }
+                            }
                     }
                 }
                 .sheet(item: $replyTarget) { target in
@@ -896,7 +1017,10 @@ struct FloorDetailPage: View {
                 }
                 Spacer()
             }
-            PbContentView(contents: sub.content, fontSize: .footnote)
+            PbContentView(contents: sub.content, fontSize: .footnote,
+                          onImageTap: { urls, index in
+                              photoUrls = urls; photoIndex = index; showPhoto = true
+                          })
             HStack(spacing: 12) {
                 // 楼中楼点赞（对齐 Android SubPostItem 点赞可点）
                 LikeButton(threadId: threadId, postId: Int64(sub.id),

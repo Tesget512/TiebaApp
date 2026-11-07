@@ -356,6 +356,13 @@ struct EmoticonPanel: View {
 
 // MARK: - 本地通知调度（对应 Android NotifyJobService 的 iOS 等价实现）
 
+/// 通知未读数状态（Android MainPage 底栏 badge=messageCount 对齐）
+@MainActor
+final class NotifyBadge: ObservableObject {
+    static let shared = NotifyBadge()
+    @Published var count: Int = 0
+}
+
 /// iOS 无常驻 JobService；用 BGTask 不可靠，改为「前台/切后台时拉一次未读数，
 /// 有新消息就发本地通知」+ 设置里的开关。对应 Android 30 分钟轮询的轻量替代。
 enum NotifyScheduler {
@@ -364,13 +371,14 @@ enum NotifyScheduler {
         return (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
     }
 
-    /// 拉未读数并对 reply/at 发本地通知（对应 NotifyJobService.onStartJob 的字段逻辑）
+    /// 拉未读数：更新底栏角标（不依赖通知授权）+ 对 reply/at 发本地通知（需授权）
     static func pollOnce() async {
         guard let _ = TiebaJSONClient.shared.accountProvider(), !AccountUtil.cookieHeader().isEmpty else { return }
-        guard await currentlyAuthorized() else { return }
         guard let resp = try? await TiebaWriteEndpoints.unreadCount() else { return }
         let reply = resp.msg?.replyme?.value ?? 0
         let at = resp.msg?.atme?.value ?? 0
+        await MainActor.run { NotifyBadge.shared.count = Int(reply + at) }
+        guard await currentlyAuthorized() else { return }
         if reply > 0 {
             notify(id: "reply", title: "回复我的",
                    body: "你有 \(reply) 条新回复")

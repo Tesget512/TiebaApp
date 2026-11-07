@@ -34,8 +34,9 @@ enum TiebaWriteEndpoints {
     // MARK: - 签到
 
     /// 单吧签到 `/c/c/forum/sign`（official 通道）
+    /// - Returns: 签到结果（经验/连续天数/排名，对齐 Android SignResultBean 弹窗字段）
     static func forumSign(forumName: String, forumId: Int64 = 0,
-                          fromWidget: String = "0", tbs: String? = nil) async throws {
+                          fromWidget: String = "0", tbs: String? = nil) async throws -> ForumSignResponse {
         guard let account = TiebaJSONClient.shared.accountProvider(),
               !account.uid.isEmpty else { throw TiebaAPIError.notLoggedIn }
         let params: [String: String] = [
@@ -49,7 +50,11 @@ enum TiebaWriteEndpoints {
         let data = try await TiebaJSONClient.shared.post(path: "/c/c/forum/sign",
                                                         params: params, channel: .official,
                                                         forceLogin: true)
-        _ = try TiebaJSONClient.decode(SimpleErrorResponse.self, from: data)
+        let resp = try TiebaJSONClient.decode(ForumSignResponse.self, from: data)
+        if let code = resp.error_code?.value, code != "0" {
+            throw TiebaAPIError.apiError(code: Int(code) ?? -1, message: resp.error_msg ?? "签到失败")
+        }
+        return resp
     }
 
     /// 一键签到 `/c/c/forum/msign`（official 通道）
@@ -470,6 +475,21 @@ struct SimpleErrorResponse: Decodable {
         let error_code: FlexibleString?
         let error_msg: String?
     }
+}
+
+/// `/c/c/forum/sign` 响应（对齐 Android SignResultBean：签到结果弹窗字段）
+struct ForumSignResponse: Decodable {
+    struct UserInfo: Decodable {
+        let sign_bonus_point: FlexibleInt?
+        let levelup_score: FlexibleInt?
+        let cont_sign_num: FlexibleInt?
+        let user_sign_rank: FlexibleInt?
+        let is_sign_in: FlexibleInt?
+        let level_name: FlexibleString?
+    }
+    let error_code: FlexibleString?
+    let error_msg: String?
+    let user_info: UserInfo?
 }
 
 /// `/c/c/forum/msign` 响应

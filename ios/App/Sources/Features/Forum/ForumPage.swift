@@ -17,6 +17,12 @@ struct ForumPage: View {
     @State private var hasMore = true
     @State private var signStatus: String?
     @State private var isSigning = false
+    /// 签到结果弹窗（对齐 Android ForumViewModel:100-112 经验/排名/连续天数）
+    @State private var signResult: ForumSignResponse.UserInfo?
+    @State private var showSignResult = false
+    /// 关注确认取关弹窗
+    @State private var showUnfollowConfirm = false
+    @State private var isTogglingLike = false
     @State private var path = NavigationPath()
     @State private var toast: String?
     @State private var showNewPost = false
@@ -28,6 +34,8 @@ struct ForumPage: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // 层级顺序对齐 Android ForumPage.kt：吧信息头在上（840 行），Tab 行在下（872 行）
+            forumHeader
             Picker("排序", selection: $tab) {
                 Text("最新").tag(ForumTab.latest)
                 Text("精华").tag(ForumTab.good)
@@ -95,10 +103,38 @@ struct ForumPage: View {
                     ShareLink(item: URL(string: "https://tieba.baidu.com/f?kw=\(forumName)")!) {
                         Label("分享", systemImage: "square.and.arrow.up")
                     }
+                    // 取关（Android ForumPage.kt:655-663 菜单项，带确认弹窗）
+                    if appState.isLoggedIn, forum?.isLike == 1 {
+                        Divider()
+                        Button(role: .destructive) {
+                            showUnfollowConfirm = true
+                        } label: {
+                            Label("取消关注本吧", systemImage: "person.minus")
+                        }
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
             }
+        }
+        .alert("签到成功", isPresented: $showSignResult) {
+            Button("好的", role: .cancel) {}
+        } message: {
+            if let info = signResult {
+                Text("""
+                经验值 +\(info.sign_bonus_point?.value ?? 8)
+                连续签到 \(info.cont_sign_num?.value ?? 1) 天
+                本吧排名 第\(info.user_sign_rank?.value ?? 0) 名
+                """)
+            }
+        }
+        .alert("取消关注", isPresented: $showUnfollowConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("取关", role: .destructive) {
+                if let f = forum { Task { await toggleFollow(f, follow: false) } }
+            }
+        } message: {
+            Text("确定不再关注 \(forumName) 吗？")
         }
         .navigationDestination(isPresented: $forumDetailRoute) {
             ForumDetailPage(forumId: forum?.id ?? 0, forumName: forumName)
@@ -156,7 +192,6 @@ struct ForumPage: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    forumHeader
                     ThreadListView(threads: threads, isLoadingMore: isLoadingMore,
                                    onLoadMore: { await loadMore() })
                 }
@@ -176,28 +211,86 @@ struct ForumPage: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                signButton(forum)
+                forumActionButton(forum)
             }
             .padding(16)
             Divider()
         }
     }
 
+    /// 头部主按钮：对齐 Android ForumPage.kt:290-310 三态
+    /// 未关注 → 「关注」（点击关注）；已关注未签 → 「签到」；已签 → 「已签 N 天」（置灰）
     @ViewBuilder
-    private func signButton(_ forum: Tieba_FrsPage_ForumInfo) -> some View {
+    private func forumActionButton(_ forum: Tieba_FrsPage_ForumInfo) -> some View {
+        let liked = forum.isLike == 1
+        let signed = forum.signInInfo.userInfo.isSignIn == 1
         Button {
-            Task { await sign(forum) }
+            Task {
+                if !liked {
+                    await toggleFollow(forum, follow: true)
+                } else if !signed {
+                    await sign(forum)
+                }
+            }
         } label: {
-            if isSigning {
-                ProgressView()
-            } else {
-                Text(signStatus ?? "签到")
-                    .font(.footnote.weight(.medium))
+            HStack(spacing: 4) {
+                if isSigning || isTogglingLike {
+                    ProgressView().controlSize(.small)
+                } else {
+                    if liked && signed {
+                        Image(systemName: "checkmark")
+                            .font(.caption2.weight(.bold))
+                    }
+                    Text(buttonTitle(forum, liked: liked, signed: signed))
+                        .font(.footnote.weight(.medium))
+                }
             }
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
-        .disabled(isSigning || signStatus != nil)
+        .disabled(isSigning || isTogglingLike || (liked && signed))
+    }
+
+    private func buttonTitle(_ forum: Tieba_FrsPage_ForumInfo, liked: Bool, signed: Bool) -> String {
+        if !liked { return "关注" }
+        if signed { return "已签 \(forum.signInInfo.userInfo.contSignNum) 天" }
+        return signStatus ?? "签到"
+    }
+
+    /// 关注/取关（Android ForumUiIntent.Like / unlike；取关带确认弹窗）
+    private func toggleFollow(_ forum: Tieba_FrsPage_ForumInfo, follow: Bool) async {
+        guard appState.isLoggedIn else {
+            errorText = "请先登录"
+            return
+        }
+        if AppPreferences.shared.safeMode && !follow {
+            toast = "安全模式已开启，写操作被拦截"
+            return
+        }
+        isTogglingLike = true
+        defer { isTogglingLike = false }
+        do {
+            if follow {
+                _ = try await TiebaWriteEndpoints.likeForum(forumId: Int64(forum.id),
+                                                            forumName: forumName)
+                updateForumLocally { $0.isLike = 1 }  // Int32 协议字段
+                toast = "已关注 \(forumName)"
+            } else {
+                _ = try await TiebaWriteEndpoints.unlikeForum(forumId: Int64(forum.id),
+                                                              forumName: forumName)
+                updateForumLocally { $0.isLike = 0 }
+                toast = "已取消关注 \(forumName)"
+            }
+        } catch {
+            toast = error.localizedDescription
+        }
+    }
+
+    /// 本地更新吧信息（struct 拷贝写回，按钮态即时变化，避免整页 reload 闪烁）
+    private func updateForumLocally(_ mutate: (inout Tieba_FrsPage_ForumInfo) -> Void) {
+        guard var f = forum else { return }
+        mutate(&f)
+        forum = f
     }
 
     private func sign(_ forum: Tieba_FrsPage_ForumInfo) async {
@@ -210,10 +303,25 @@ struct ForumPage: View {
         // 签到必须带 tbs；缺失时先刷新账号（Android 的 tbs 随账号持久化）
         await appState.refreshTbsIfNeeded()
         do {
-            try await TiebaWriteEndpoints.forumSign(forumName: forumName, forumId: Int64(forum.id))
-            signStatus = "已签到"
+            let resp = try await TiebaWriteEndpoints.forumSign(forumName: forumName,
+                                                               forumId: Int64(forum.id))
+            // 本地回显已签状态（is_sign_in=1 + 连续天数），并弹出结果
+            if let info = resp.user_info {
+                updateForumLocally { f in
+                    var si = f.signInInfo
+                    var ui = si.userInfo
+                    ui.isSignIn = Int32(info.is_sign_in?.value ?? 1)
+                    if let cont = info.cont_sign_num?.value { ui.contSignNum = Int32(cont) }
+                    si.userInfo = ui
+                    f.signInInfo = si
+                }
+                signResult = info
+                showSignResult = true
+            } else {
+                signStatus = "已签到"
+            }
         } catch {
-            errorText = error.localizedDescription
+            toast = error.localizedDescription
         }
     }
 

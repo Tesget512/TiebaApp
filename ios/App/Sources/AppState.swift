@@ -65,4 +65,30 @@ final class AppState: ObservableObject {
             updateAccount(refreshed)
         }
     }
+
+    /// 自动签到补执行（Android OKSignService 的应用内替代：
+    /// 启动/回前台时若已到设定时间且当天未签，则静默执行一轮一键签到）
+    private var autoSignRunning = false
+    private let prefs = AppPreferences.shared
+
+    func runAutoSignIfDue() async {
+        guard prefs.autoSign, let account, !account.bduss.isEmpty else { return }
+        let cal = Calendar.current
+        guard prefs.signDay != cal.component(.day, from: Date()) else { return } // 当天已签
+        let parts = prefs.autoSignTime.split(separator: ":").compactMap { Int($0) }
+        guard let due = cal.date(bySettingHour: parts.first ?? 9,
+                                 minute: parts.count > 1 ? parts[1] : 0,
+                                 second: 0, of: Date()),
+              Date() >= due else { return } // 未到设定时间
+        guard !autoSignRunning else { return }
+        autoSignRunning = true
+        defer { autoSignRunning = false }
+        await refreshTbsIfNeeded()
+        let ok = await OKSigner.run(
+            account: account,
+            slowMode: prefs.oksignSlowMode,
+            useMSign: prefs.oksignUseOfficialOksign,
+            failAutoStop: prefs.oksignFailAutoStop) { _ in }
+        if ok { prefs.signDay = cal.component(.day, from: Date()) }
+    }
 }

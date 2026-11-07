@@ -45,6 +45,21 @@ final class AppPreferences: ObservableObject {
     /// 进吧页吧列表排序：0 热度 / 1 发帖时间 / 2 等级 / 3 名称
     @Published var homeForumSort: Int { didSet { d.set(homeForumSort, forKey: "home_forum_sort") } }
     @Published var showRecentForums: Bool { didSet { d.set(showRecentForums, forKey: "show_recent_forums") } }
+    /// 进吧页吧列表两列显示（用户要求：给个开关做成两列）
+    @Published var forumTwoColumn: Bool { didSet { d.set(forumTwoColumn, forKey: "forum_two_column") } }
+    /// 进吧页自定义置顶吧（有序：最新置顶在最前；Published 保证置顶后列表即时重排）
+    @Published var pinnedForums: [String] { didSet { d.set(pinnedForums, forKey: "tieba.pinnedForums") } }
+
+    func isPinnedForum(_ name: String) -> Bool { pinnedForums.contains(name) }
+    func togglePinnedForum(_ name: String) {
+        var list = pinnedForums
+        if let idx = list.firstIndex(of: name) {
+            list.remove(at: idx)
+        } else {
+            list.insert(name, at: 0)
+        }
+        pinnedForums = list
+    }
     /// 启动首选页：0 发现 / 1 进吧 / 2 通知
     @Published var startPage: Int { didSet { d.set(startPage, forKey: "start_page") } }
     @Published var storeAutoLz: Bool { didSet { d.set(storeAutoLz, forKey: "store_auto_lz") } }
@@ -77,6 +92,8 @@ final class AppPreferences: ObservableObject {
         watermarkType = d.object(forKey: "watermark_type") as? Int ?? 0
         homeForumSort = d.object(forKey: "home_forum_sort") as? Int ?? 0
         showRecentForums = d.object(forKey: "show_recent_forums") as? Bool ?? true
+        forumTwoColumn = d.object(forKey: "forum_two_column") as? Bool ?? false
+        pinnedForums = d.stringArray(forKey: "tieba.pinnedForums") ?? []
         startPage = d.object(forKey: "start_page") as? Int ?? 0
         storeAutoLz = d.object(forKey: "store_auto_lz") as? Bool ?? false
         storeAutoDesc = d.object(forKey: "store_auto_desc") as? Bool ?? false
@@ -109,15 +126,18 @@ enum AppTheme: String, CaseIterable, Identifiable {
     /// 主色（用于展示圆点；深色主题给近似色）
     var primary: Color {
         switch self {
-        case .tieba: return Color(red: 0.18, green: 0.38, blue: 0.69)
-        case .blue: return Color(red: 0.16, green: 0.53, blue: 0.87)
-        case .black: return Color(red: 0.15, green: 0.15, blue: 0.17)
-        case .pink: return Color(red: 0.91, green: 0.45, blue: 0.62)
-        case .red: return Color(red: 0.85, green: 0.24, blue: 0.24)
-        case .purple: return Color(red: 0.55, green: 0.36, blue: 0.78)
-        case .blueDark: return Color(red: 0.24, green: 0.42, blue: 0.66)
-        case .greyDark: return Color(red: 0.35, green: 0.35, blue: 0.38)
-        case .amoledDark: return Color(red: 0.10, green: 0.10, blue: 0.10)
+        // 对齐 Android colors.xml：tieba=#4477E0；浅色主题 tieba/blue 同值；
+        // 深色主题（blueDark/greyDark/amoledDark）primary 全部为贴吧蓝；
+        // pink=#FF9A9E、red=#C51100、purple=#512DA8、black=#000000
+        case .tieba: return Color(red: 0x44 / 255.0, green: 0x77 / 255.0, blue: 0xE0 / 255.0)
+        case .blue: return Color(red: 0x44 / 255.0, green: 0x77 / 255.0, blue: 0xE0 / 255.0)
+        case .black: return Color(red: 0, green: 0, blue: 0)
+        case .pink: return Color(red: 0xFF / 255.0, green: 0x9A / 255.0, blue: 0x9E / 255.0)
+        case .red: return Color(red: 0xC5 / 255.0, green: 0x11 / 255.0, blue: 0x00 / 255.0)
+        case .purple: return Color(red: 0x51 / 255.0, green: 0x2D / 255.0, blue: 0xA8 / 255.0)
+        case .blueDark: return Color(red: 0x44 / 255.0, green: 0x77 / 255.0, blue: 0xE0 / 255.0)
+        case .greyDark: return Color(red: 0x44 / 255.0, green: 0x77 / 255.0, blue: 0xE0 / 255.0)
+        case .amoledDark: return Color(red: 0x44 / 255.0, green: 0x77 / 255.0, blue: 0xE0 / 255.0)
         }
     }
 }

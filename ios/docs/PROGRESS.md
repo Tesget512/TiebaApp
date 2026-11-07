@@ -365,3 +365,89 @@
 - **验证（退出码驱动 + 截图）**：深链 tblite://thread 进帖页 → pbPage 返回
   服务端真实业务错误文案（"该贴已被删除"）→ 重试按钮/自定义底栏隐藏均生效；
   推荐流/自定义底栏截图确认。
+
+## 2026-11-07 P18 真机验收第二轮修复 + Android 对照主线补齐 ✅
+
+（用户反馈：悬浮底栏被改成全宽条不满意 + 列表最后一项被底栏挡住 + 图片完全打不开 +
+深色模式组件颜色不适配/按钮字体没上色 + 进吧页要两列开关与自定义置顶。
+并要求：以独立 fork 分支视角，逐一对照 Android 实现尽量还原主线全部功能。）
+
+### 用户报告问题修复
+- **悬浮底栏还原**：CustomTabBar 改为悬浮胶囊样式（regularMaterial 材质 + 圆角 26 +
+  阴影 + 左右 14pt 留边 + 选中缩放淡入淡出 0.15s），观感对齐系统 Liquid Glass
+  悬浮底栏但无系统 tabBar 闪现缺陷。
+- **最后一项被遮挡**：RootView 在 TabView 上加
+  `safeAreaInset(edge: .bottom)`（visible 时 64pt / 详情页隐藏时 0，动画同步），
+  所有 tab 根页 List 内容自动让位，我的页「关于」等最后一项可完整滚动可见。
+- **图片完全打不开**（三处叠加根因）：
+  1) 楼层图片点击是**整层透明 overlay**（Color.clear+contentShape 盖住整段正文），
+     拦截文字区域点击且与图片渲染条件不一致 → 改为**每张图片自身挂
+     onTapGesture**（PbContentView 新增 onImageTap 回调 + 图片序号定位）；
+  2) 楼中楼（FloorDetailPage）完全没有图片查看入口 → 补齐同款查看器；
+  3) URL 解析失败即静默黑屏 → picURL/ZoomableImage 增加**百分号编码兜底**，
+     RemoteImage 失败态改为可见「点击重试」（attempt 计数驱动 task 重跑），
+     查看器无效地址显示「图片地址无效」占位而非黑屏。
+  验证：深链水楼(11157539425) 帖子页图片全部渲染；-openPhoto 调试参数打开
+  查看器：工具栏（关闭/下载/分享）+ 页码点 + 图片加载链路正常。
+- **深色模式组件不适配**：iOS 26 Liquid Glass 工具栏胶囊在滚动后不跟随应用
+  强制深色（用户截图浅色胶囊）→ RootView 加 `.toolbarColorScheme(
+  usesDarkTheme ? .dark : .light, for: .navigationBar)` 强制导航栏配色；
+  关于页图标硬编码 #2E60B0 → Color.accentColor。
+
+### 进吧页（用户要求）
+- **两列显示开关**：AppPreferences.forumTwoColumn（UserDefaults 持久），
+  工具栏菜单 Toggle；两列用 LazyVGrid 卡片（头像/吧名/置顶钉/热帖/等级+
+  chevron），单列保留原行样式；卡片跳转用 path.append（Grid 内
+  NavigationLink 会带出行样式）。
+- **自定义置顶修活**：原 PinnedForumStore 是纯 UserDefaults 枚举——置顶后
+  **界面不刷新**（用户感知「没有置顶功能」）→ 迁移为
+  AppPreferences.pinnedForums（@Published），排序改为置顶优先**且保持置顶
+  先后顺序**，行/卡片 contextMenu 置顶即时重排 + toast 反馈。
+
+### Android 对照审计补齐（Explore 全量比对 app/ vs ios/）
+- **[P0] 楼中楼看图**：FloorDetailPage 原帖/子回复图片点击进查看器（本轮随
+  onImageTap 一并修复——审计确认这是唯一硬缺失 P0）。
+- **[P1] 吧页三态按钮**（对齐 ForumPage.kt:290-310）：未关注→「关注」（点击
+  调 /c/c/forum/like）；已关注未签→「签到」；已签→「已签 N 天」置灰
+  （is_sign_in/cont_sign_num 回显，frsPage 已带字段只是从未渲染）。
+  签到结果弹窗（经验/连续天数/排名，ForumSignResponse 解析
+  sign_bonus_point/cont_sign_num/user_sign_rank，对齐 ForumViewModel:100-112）；
+  工具栏菜单补「取消关注本吧」（带确认弹窗，ForumPage.kt:655-663 对齐）。
+- **[P1] 帖子页底部回复栏**（对齐 ThreadPage.kt:2021-2060 BottomBar）：
+  「回复」胶囊 + **全帖点赞**（thread.agree，此前 iOS 无帖子级点赞入口）；
+  工具栏回帖按钮移除（底栏唯一入口，Android 对齐）；沉浸阅读隐藏。
+- **[P1] 楼层内楼中楼预览**（对齐 ThreadPage.kt:2305）：sub_post_list 前 3 条
+  （作者：内容，EmoticonText 渲染表情）+「查看全部 N 条回复」，点击进楼中楼。
+- **[P1] 自动签到修活**：autoSign 开关原本是**纯空壳**（全仓库无消费方）→
+  AppState.runAutoSignIfDue()：启动 .task + scenePhase 回前台补执行，
+  判定（开关开 && 当天未签 && 已过设定时间）后静默跑 OKSigner.run 并记录
+  signDay（Android OKSignService 的应用内替代，iOS 无常驻服务）。
+- **[P2] 通知底栏角标**（对齐 MainPage.kt:185-186 badge）：NotifyBadge
+  ObservableObject，NotifyScheduler.pollOnce 更新未读数（不再依赖通知授权），
+  CustomTabBar 通知 tab 红点数字角标（99+ 封顶），进通知页清零。
+- **[P2] 通知页搜索入口**（NotificationsPage.kt:139-145 对齐）。
+- 审计确认已对齐项：吧内搜索/看帖互动/收藏/举报/搜索三分类/一键签到(手动)/
+  多账号/修改资料/屏蔽名单/发言分析/深链等（详见审计清单，本轮不再重复）。
+- 遗留下轮候选：回复多图上传+原图开关（中）、收藏帖返回更新引导（小）、
+  设置自定义分组（小）。
+
+### 基建
+- DEBUG-only 模拟器验收钩子：`simctl launch … -openThread <tid>` /
+  `-openPhoto <url>`（RootView onAppear 读启动参数设置 externalRoute，
+  Release 构建零影响），弥补 idb 缺失下无法合成触摸的限制。
+
+### P18.1 反思修复（用户对模拟器截图逐点批注）
+- **灰色按钮/图标根因**：AppPreferences 主题 primary 色值全部写错——
+  Android colors.xml:79-88 各主题 primary 均为贴吧蓝 #4477E0
+  （含 greyDark/blueDark/amoledDark），iOS 错写成灰/深蓝杂色，
+  全局 .tint() 导致工具栏按钮/关注按钮/分段控件发灰。
+  全部修正为 Android 精确值（tieba/blue/blueDark/greyDark/amoledDark=#4477E0、
+  pink=#FF9A9E、red=#C51100、purple=#512DA8、black=#000000）。
+- **吧页层级顺序**：Android ForumPage 头(840)在上、Tab 行(872)在下，
+  iOS 写反 → forumHeader 移到 segmented Picker 之上。
+- **深链不沉浸**：外路由卡片式 sheet 顶部露出黑色背景带 → 改
+  fullScreenCover 全屏呈现（保留关闭按钮），截图确认无黑带。
+- **帖子页底部回复栏**：由全宽贴边条改为与主底栏同款悬浮胶囊
+  （material 圆角 26 + 阴影 + 左右留边），滚动内容从其后穿过。
+- 截图验收：吧页（全屏/蓝主题/顺序正确/关注蓝胶囊）、帖子页
+  （悬浮回复栏+全帖赞 198+全屏沉浸）。

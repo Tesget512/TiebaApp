@@ -49,8 +49,17 @@ struct NotificationsView: View {
                 }
             }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    // 搜索入口（Android NotificationsPage.kt:139-145）
+                    NavigationLink(value: AppRoute.search) {
+                        Image(systemName: "magnifyingglass")
+                    }
+                }
+            }
             .task { if appState.isLoggedIn { await load() } }
             .onChange(of: tab) { _ in Task { await load() } }
+            .onAppear { NotifyBadge.shared.count = 0 } // 进入通知页视为已读
         }
     }
 

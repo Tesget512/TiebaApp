@@ -160,7 +160,8 @@ struct HomeFeedPage: View {
     @State private var toast: String?
     @ObservedObject private var prefs = AppPreferences.shared
 
-    /// Android HomePage 排序：0 热度 / 1 发帖时间(按吧ID代理) / 2 等级 / 3 名称
+    /// Android HomePage 排序：0 热度 / 1 发帖时间(按吧ID代理) / 2 等级 / 3 名称；
+    /// 自定义置顶优先且保持置顶先后顺序（Published 驱动即时重排）
     private var sortedForums: [Tieba_ForumRecommend_LikeForum] {
         var list = likeForums
         switch prefs.homeForumSort {
@@ -169,13 +170,17 @@ struct HomeFeedPage: View {
         case 3: list.sort { $0.forumName < $1.forumName }
         default: break // 热度：保持服务端序
         }
-        // 置顶吧优先（长按菜单设置）
-        let pinned = PinnedForumStore.all()
-        return list.sorted { a, b in
-            let pa = pinned.contains(a.forumName), pb = pinned.contains(b.forumName)
-            if pa != pb { return pa }
-            return false
+        let pinned = prefs.pinnedForums
+        var pinnedList: [Tieba_ForumRecommend_LikeForum] = []
+        var rest: [Tieba_ForumRecommend_LikeForum] = []
+        for f in list {
+            if pinned.contains(f.forumName) { pinnedList.append(f) } else { rest.append(f) }
         }
+        pinnedList.sort {
+            (pinned.firstIndex(of: $0.forumName) ?? .max)
+                < (pinned.firstIndex(of: $1.forumName) ?? .max)
+        }
+        return pinnedList + rest
     }
 
     var body: some View {
@@ -216,60 +221,19 @@ struct HomeFeedPage: View {
                                 Text("暂无关注的吧，去搜索页发现感兴趣的贴吧吧")
                                     .font(.footnote).foregroundStyle(.secondary)
                             }
-                            ForEach(sortedForums, id: \.forumID) { f in
-                                NavigationLink(value: AppRoute.forum(f.forumName)) {
-                                    HStack(spacing: 12) {
-                                        RemoteImage(url: URL(string: f.avatar))
-                                            .frame(width: 44, height: 44)
-                                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                                            .overlay {
-                                                Image(systemName: "b.circle.fill")
-                                                    .foregroundStyle(.blue)
-                                                    .opacity(f.avatar.isEmpty ? 1 : 0)
-                                            }
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            HStack(spacing: 4) {
-                                                if PinnedForumStore.isPinned(f.forumName) {
-                                                    Image(systemName: "pin.fill")
-                                                        .font(.caption2).foregroundStyle(.orange)
-                                                }
-                                                Text(f.forumName).font(.subheadline.weight(.medium))
-                                            }
-                                            if !f.content.isEmpty {
-                                                Text(f.content).font(.caption)
-                                                    .foregroundStyle(.secondary).lineLimit(1)
-                                            }
-                                        }
-                                        Spacer()
-                                        if f.isSign != 0 {
-                                            Text("已签")
-                                                .font(.caption2).foregroundStyle(.green)
-                                        } else {
-                                            Text("\(f.levelID)级")
-                                                .font(.caption2).foregroundStyle(.secondary)
-                                        }
+                            if prefs.forumTwoColumn {
+                                // 两列卡片（用户要求：开关切换两列显示）
+                                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
+                                                    GridItem(.flexible())], spacing: 10) {
+                                    ForEach(sortedForums, id: \.forumID) { f in
+                                        forumCard(f)
                                     }
-                                    .padding(.vertical, 2)
                                 }
-                                // 吧行长按菜单（Android：置顶/复制吧名/取关）
-                                .contextMenu {
-                                    Button {
-                                        PinnedForumStore.toggle(f.forumName)
-                                    } label: {
-                                        Label(PinnedForumStore.isPinned(f.forumName) ? "取消置顶" : "置顶",
-                                              systemImage: "pin")
-                                    }
-                                    Button {
-                                        UIPasteboard.general.string = f.forumName
-                                        toast = "吧名已复制"
-                                    } label: {
-                                        Label("复制吧名", systemImage: "doc.on.doc")
-                                    }
-                                    Button(role: .destructive) {
-                                        Task { await unfollow(f) }
-                                    } label: {
-                                        Label("取消关注", systemImage: "person.minus")
-                                    }
+                                .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                                .listRowBackground(Color.clear)
+                            } else {
+                                ForEach(sortedForums, id: \.forumID) { f in
+                                    forumRow(f)
                                 }
                             }
                         }
@@ -304,6 +268,7 @@ struct HomeFeedPage: View {
                             Text("按等级").tag(2)
                             Text("按名称").tag(3)
                         }
+                        Toggle("两列显示", isOn: $prefs.forumTwoColumn)
                         Toggle("显示最近访问吧", isOn: $prefs.showRecentForums)
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -312,6 +277,115 @@ struct HomeFeedPage: View {
             }
             .task { if likeForums.isEmpty { await load() } }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
+        }
+    }
+
+    /// 吧行（单列）：行内跳转用 NavigationLink(value:)——依赖所在栈已注册的
+    /// navigationDestination（P17 教训：页面自建 NavigationPath append 是死变更）
+    private func forumRow(_ f: Tieba_ForumRecommend_LikeForum) -> some View {
+        NavigationLink(value: AppRoute.forum(f.forumName)) {
+            HStack(spacing: 12) {
+                forumAvatar(f, side: 44, radius: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        if prefs.isPinnedForum(f.forumName) {
+                            Image(systemName: "pin.fill")
+                                .font(.caption2).foregroundStyle(.orange)
+                        }
+                        Text(f.forumName).font(.subheadline.weight(.medium))
+                    }
+                    if !f.content.isEmpty {
+                        Text(f.content).font(.caption)
+                            .foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer()
+                if f.isSign != 0 {
+                    Text("已签")
+                        .font(.caption2).foregroundStyle(.green)
+                } else {
+                    Text("\(f.levelID)级")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .contextMenu { forumContextMenu(f) }
+    }
+
+    /// 吧卡片（两列）：按钮 + path.append（Grid 内 NavigationLink 会带出行样式）
+    private func forumCard(_ f: Tieba_ForumRecommend_LikeForum) -> some View {
+        Button {
+            path.append(AppRoute.forum(f.forumName))
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                forumAvatar(f, side: 56, radius: 12)
+                HStack(spacing: 4) {
+                    if prefs.isPinnedForum(f.forumName) {
+                        Image(systemName: "pin.fill")
+                            .font(.caption2).foregroundStyle(.orange)
+                    }
+                    Text(f.forumName)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                }
+                if !f.content.isEmpty {
+                    Text(f.content).font(.caption)
+                        .foregroundStyle(.secondary).lineLimit(1)
+                }
+                HStack(spacing: 6) {
+                    if f.isSign != 0 {
+                        Text("已签").font(.caption2).foregroundStyle(.green)
+                    } else {
+                        Text("\(f.levelID)级").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .contextMenu { forumContextMenu(f) }
+    }
+
+    private func forumAvatar(_ f: Tieba_ForumRecommend_LikeForum,
+                             side: CGFloat, radius: CGFloat) -> some View {
+        RemoteImage(url: URL(string: f.avatar))
+            .frame(width: side, height: side)
+            .clipShape(RoundedRectangle(cornerRadius: radius))
+            .overlay {
+                Image(systemName: "b.circle.fill")
+                    .foregroundStyle(.blue)
+                    .opacity(f.avatar.isEmpty ? 1 : 0)
+            }
+    }
+
+    /// 吧行/卡片共用长按菜单（置顶即时重排）
+    private func forumContextMenu(_ f: Tieba_ForumRecommend_LikeForum) -> some View {
+        Group {
+            Button {
+                prefs.togglePinnedForum(f.forumName)
+                toast = prefs.isPinnedForum(f.forumName) ? "已置顶 \(f.forumName)" : "已取消置顶"
+            } label: {
+                Label(prefs.isPinnedForum(f.forumName) ? "取消置顶" : "置顶",
+                      systemImage: "pin")
+            }
+            Button {
+                UIPasteboard.general.string = f.forumName
+                toast = "吧名已复制"
+            } label: {
+                Label("复制吧名", systemImage: "doc.on.doc")
+            }
+            Button(role: .destructive) {
+                Task { await unfollow(f) }
+            } label: {
+                Label("取消关注", systemImage: "person.minus")
+            }
         }
     }
 

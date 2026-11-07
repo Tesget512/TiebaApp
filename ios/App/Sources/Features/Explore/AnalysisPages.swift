@@ -367,7 +367,10 @@ struct PhotoViewPage: View {
 
     private func saveCurrent() {
         let urlStr = urls[currentIndex]
-        guard let url = URL(string: urlStr) else { return }
+        guard let url = tiebaImageURL(urlStr) else {
+            toastText = "图片地址无效"
+            return
+        }
         Task {
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
@@ -400,6 +403,12 @@ enum PhotoSaver {
     }
 }
 
+/// 贴吧图片 URL 解析：含中文/空格等未转义字符时百分号编码兜底
+func tiebaImageURL(_ s: String) -> URL? {
+    URL(string: s)
+        ?? URL(string: s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s)
+}
+
 /// 可双指缩放图片
 struct ZoomableImage: View {
     let urlString: String
@@ -408,7 +417,7 @@ struct ZoomableImage: View {
 
     var body: some View {
         VStack {
-            if let url = URL(string: urlString) {
+            if let url = tiebaImageURL(urlString) {
                 RemoteImage(url: url, contentMode: .fit)
                     .scaleEffect(scale)
                     .gesture(
@@ -421,6 +430,13 @@ struct ZoomableImage: View {
                     .onTapGesture(count: 2) {
                         withAnimation { scale = scale > 1 ? 1 : 2.5; lastScale = scale }
                     }
+            } else {
+                // URL 无法解析：给出可见的失败态而非黑屏
+                VStack(spacing: 8) {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .font(.system(size: 40)).foregroundStyle(.secondary)
+                    Text("图片地址无效").font(.footnote).foregroundStyle(.secondary)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

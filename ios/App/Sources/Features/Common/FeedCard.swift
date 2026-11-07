@@ -17,12 +17,15 @@ final class RemoteImageCache {
 
 /// 网络图片：内存缓存 + URLCache 二级缓存 + 失败占位（对应 Android NetworkImage）
 /// 不用 AsyncImage：它无内存缓存，列表滚动会反复重下并闪烁
+/// 失败态可见且可点击重试（点按重新发起加载）
 struct RemoteImage: View {
     let url: URL?
     var contentMode: ContentMode = .fill
 
     @State private var image: UIImage?
     @State private var failed = false
+    /// 失败重试计数（驱动 task 重跑）
+    @State private var attempt = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -32,7 +35,17 @@ struct RemoteImage: View {
                         .resizable()
                         .aspectRatio(contentMode: contentMode)
                 } else if failed {
-                    Image(systemName: "photo").foregroundStyle(.secondary)
+                    VStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 18, weight: .medium))
+                        Text("点击重试").font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        failed = false
+                        attempt += 1
+                    }
                 } else {
                     Color(.systemGray5)
                 }
@@ -40,7 +53,7 @@ struct RemoteImage: View {
             .frame(width: geo.size.width, height: geo.size.height)
             .clipped()
         }
-        .task(id: url) {
+        .task(id: "\(url?.absoluteString ?? "")#\(attempt)") {
             guard let url else { failed = true; return }
             if let cached = RemoteImageCache.shared.image(for: url) {
                 image = cached

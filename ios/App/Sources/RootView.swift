@@ -7,6 +7,8 @@ struct RootView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var prefs = AppPreferences.shared
     @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var notifyBadge = NotifyBadge.shared
     @State private var selectedTab = 0
     /// 详情页是否要求隐藏底栏（PreferenceKey 汇总）
     @State private var bottomBarHidden = false
@@ -75,9 +77,19 @@ struct RootView: View {
                     .toolbar(.hidden, for: .tabBar)
             }
             .onPreferenceChange(BottomBarHiddenKey.self) { bottomBarHidden = $0 }
-            // 自定义底栏（隐藏声明由 TabView 内页面通过 preference 汇总上来）
-            CustomTabBar(selection: $selectedTab, isHidden: bottomBarHidden)
+            // 内容让位：列表最后一项不再被悬浮底栏遮挡（详情页隐藏时收起为 0）
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear
+                    .frame(height: bottomBarHidden ? 0 : 64)
+                    .allowsHitTesting(false)
+                    .animation(.easeInOut(duration: 0.15), value: bottomBarHidden)
+            }
+            // 自定义悬浮底栏（隐藏声明由 TabView 内页面通过 preference 汇总上来）
+            CustomTabBar(selection: $selectedTab, isHidden: bottomBarHidden,
+                         unreadCount: notifyBadge.count)
         }
+        // 强制导航栏玻璃材质跟随应用内主题（修复 iOS 26 滚动后胶囊变浅色不跟随深色）
+        .toolbarColorScheme(usesDarkTheme ? .dark : .light, for: .navigationBar)
         .tint(tintColor)
         .preferredColorScheme(prefs.followSystemNight ? nil : (usesDarkTheme ? .dark : .light))
         .dynamicTypeSize(dynamicSize)
@@ -92,7 +104,22 @@ struct RootView: View {
                 externalRoute = ExternalRoute(route: .forum(kw))
             }
         }
-        .sheet(item: $externalRoute) { item in
+        #if DEBUG
+        // 模拟器验收辅助（仅 Debug 构建）：simctl launch … -openThread <tid> / -openPhoto <url>
+        .onAppear {
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-openThread"), i + 1 < args.count,
+               let tid = Int64(args[i + 1]) {
+                externalRoute = ExternalRoute(route: .thread(id: tid, title: "帖子", forumId: 0))
+            }
+            if let i = args.firstIndex(of: "-openPhoto"), i + 1 < args.count {
+                externalRoute = ExternalRoute(route: .photoView(urls: [args[i + 1]], index: 0))
+            }
+        }
+        #endif
+        // 外部路由全屏呈现（Android 全页对齐；卡片式 sheet 顶部会露出黑色背景带，
+        // 用户验收指出「不沉浸」），保留关闭按钮供深链场景退出
+        .fullScreenCover(item: $externalRoute) { item in
             NavigationStack {
                 RouteView(route: item.route)
                     .toolbar {
@@ -129,6 +156,17 @@ struct RootView: View {
             // 启动时请求通知权限并拉一次未读（对应 Android NotifyJobService 的轻量替代）
             _ = await NotifyScheduler.requestPermission()
             await NotifyScheduler.pollOnce()
+            // 自动签到补执行（Android OKSignService 应用内替代）
+            await appState.runAutoSignIfDue()
+        }
+        .onChange(of: scenePhase) { phase in
+            // 回前台补执行（当天已签/未到时间由方法内部判定）
+            if phase == .active {
+                Task {
+                    await NotifyScheduler.pollOnce()
+                    await appState.runAutoSignIfDue()
+                }
+            }
         }
     }
 }
