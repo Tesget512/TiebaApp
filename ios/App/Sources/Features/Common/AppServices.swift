@@ -405,6 +405,11 @@ enum NotifyScheduler {
 }
 
 // MARK: - 剪贴板链接检测（对应 Android ClipBoardLinkDetector）
+//
+// iOS 不能像 Android 那样随便读剪贴板：直接读 `UIPasteboard.general.string`
+// 会触发系统「允许粘贴」横幅，每次回前台都弹（用户反馈"反反复复提示"）。
+// 改用 iOS 16+ `detectValues(.probableWebURL)`：系统侧识别 URL，不弹横幅、
+// 不需要粘贴授权；拿到 URL 即可解析跳转，全程零读取。
 
 enum ClipBoardLinkDetector {
     struct ParsedLink: Equatable {
@@ -413,14 +418,26 @@ enum ClipBoardLinkDetector {
         var forumName: String?
     }
 
+    /// 无横幅检测：仅当剪贴板里能识别出 Web URL 时返回
+    /// （SDK 仅提供 completionHandler 版本，此处包一层 continuation）
+    static func detectAsync() async -> ParsedLink? {
+        guard UIPasteboard.general.hasStrings else { return nil }
+        let values: [UIPasteboard.DetectionPattern: Any]? = await withCheckedContinuation { cont in
+            UIPasteboard.general.detectValues(for: [.probableWebURL]) { result in
+                switch result {
+                case .success(let v): cont.resume(returning: v)
+                case .failure: cont.resume(returning: nil)
+                }
+            }
+        }
+        guard let url = values?[.probableWebURL] as? URL else { return nil }
+        return parse(url: url)
+    }
+
     /// 识别 tieba.baidu.com 的 /p/{tid}、/f?kw=、/mo/q/m?word= 链接
     /// （对齐 Android isTiebaDomain + parseLink）
-    static func detect() -> ParsedLink? {
-        guard let raw = UIPasteboard.general.string, !raw.isEmpty else { return nil }
-        guard let match = raw.range(of: "https?://[^\\s\"<>]+", options: .regularExpression) else { return nil }
-        let link = String(raw[match])
-        guard let url = URL(string: link),
-              let host = url.host else { return nil }
+    static func parse(url: URL) -> ParsedLink? {
+        guard let host = url.host?.lowercased() else { return nil }
         let ok = host == "wapp.baidu.com" || host == "tieba.baidu.com" || host == "tiebac.baidu.com"
         guard ok else { return nil }
 
@@ -436,7 +453,7 @@ enum ClipBoardLinkDetector {
             }
         }
 
-        var result = ParsedLink(url: link, threadId: nil, forumName: nil)
+        var result = ParsedLink(url: url.absoluteString, threadId: nil, forumName: nil)
         if path.hasPrefix("/p/") {
             result.threadId = Int64(path.dropFirst(3))
         } else if path == "/f" || path == "/mo/q/m" {
@@ -450,17 +467,20 @@ enum ClipBoardLinkDetector {
 }
 
 /// 剪贴板链接弹窗（RootView 挂载；对应 MainActivity ClipBoardDetectDialog）
+/// 同一链接只提示一次（防反复打扰）；检测全程不触发系统粘贴横幅
 struct ClipBoardLinkDialog: ViewModifier {
     @State private var link: ClipBoardLinkDetector.ParsedLink?
-    @State private var lastCheck: Date = .distantPast
+    @State private var lastOffered = ""
 
     func body(content: Content) -> some View {
         content.onReceive(NotificationCenter.default.publisher(
             for: UIApplication.didBecomeActiveNotification)) { _ in
-            // 10s 节流（对齐 Android lastTimestamp >= 10*1000）
-            guard Date().timeIntervalSince(lastCheck) >= 10 else { return }
-            lastCheck = Date()
-            link = ClipBoardLinkDetector.detect()
+            Task {
+                guard let l = await ClipBoardLinkDetector.detectAsync() else { return }
+                guard l.url != lastOffered else { return }
+                lastOffered = l.url
+                link = l
+            }
         }
         .alert("发现贴吧链接", isPresented: Binding(
             get: { link != nil }, set: { if !$0 { link = nil } })) {

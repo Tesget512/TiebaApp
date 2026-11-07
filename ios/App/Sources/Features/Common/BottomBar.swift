@@ -25,6 +25,20 @@ extension View {
     func bottomBarHidden(_ hidden: Bool = true) -> some View {
         preference(key: BottomBarHiddenKey.self, value: hidden)
     }
+
+    /// 悬浮条底衬：iOS 26 用系统 Liquid Glass（glassEffect），旧系统材质+阴影兜底
+    @ViewBuilder
+    func floatingBarBackground<S: InsettableShape>(in shape: S) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular.interactive(), in: shape)
+        } else {
+            self.background(.regularMaterial, in: shape)
+                .overlay {
+                    shape.strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                }
+                .shadow(color: .black.opacity(0.16), radius: 10, y: 3)
+        }
+    }
 }
 
 /// 底部导航条目
@@ -83,12 +97,7 @@ struct CustomTabBar: View {
             }
         }
         .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.16), radius: 10, y: 3)
+        .floatingBarBackground(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .padding(.horizontal, 14)
         .padding(.bottom, 4)
         .opacity(isHidden ? 0 : 1)

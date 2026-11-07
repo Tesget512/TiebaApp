@@ -103,9 +103,21 @@ struct PbContentView: View {
         }
     }
 
+    /// 贴吧图片 URL 归一化：服务端常返回 `//imgsrc.baidu.com/...` 协议相对地址
+    /// （Android Glide 原生支持、URL(string:) 不支持）→ 补 https:；再百分号编码兜底
+    static func normalizePicURL(_ raw: String) -> URL? {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty { return nil }
+        if s.hasPrefix("//") { s = "https:" + s }
+        else if !s.contains("://"), s.hasPrefix("imgsrc.") || s.hasPrefix("tb") {
+            s = "https://" + s
+        }
+        return URL(string: s)
+            ?? URL(string: s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s)
+    }
+
     /// 图片 URL：originSrc > bigCdnSrc > bigSrc > cdnSrc > src（Android ImageUtil.getUrl 顺序）；
-    /// 全部原图模式 origin 优先、全部不加载返回 nil；
-    /// URL 解析失败时尝试百分号编码兜底（服务端偶发未转义路径）
+    /// 全部原图模式 origin 优先、全部不加载返回 nil
     static func picURL(_ c: Tieba_PbContent) -> URL? {
         let mode = UserDefaults.standard.integer(forKey: "image_load_mode")
         guard mode != 2 else { return nil }
@@ -113,9 +125,7 @@ struct PbContentView: View {
             ? [c.originSrc, c.bigCdnSrc, c.bigSrc, c.cdnSrc, c.src]
             : [c.bigCdnSrc, c.bigSrc, c.originSrc, c.cdnSrc, c.src]
         let s = candidates.first { !$0.isEmpty } ?? ""
-        guard !s.isEmpty else { return nil }
-        return URL(string: s)
-            ?? URL(string: s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s)
+        return Self.normalizePicURL(s)
     }
 
     /// 本段全部图片 URL（点击查看大图用，顺序与渲染一致）
@@ -136,14 +146,15 @@ struct PbContentView: View {
         return nil
     }
 
-    /// 单张图片：有点击回调时仅在图片自身热区挂手势（不拦截文字区域点击）
+    /// 单张图片：有点击回调且 URL 有效时仅在图片自身热区挂手势
+    /// （URL 为 nil 的占位块不可进查看器，避免打开空列表显示「无图片」）
     @ViewBuilder
     private func imageItem(url: URL?, aspect: CGFloat, ordinal: Int) -> some View {
         let img = RemoteImage(url: url, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .aspectRatio(aspect, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-        if let onImageTap {
+        if let onImageTap, url != nil {
             img.contentShape(Rectangle())
                 .onTapGesture { onImageTap(picUrls, ordinal) }
         } else {
@@ -261,6 +272,8 @@ struct ThreadPage: View {
     @State private var replyToFloor: Tieba_Post?
     /// 回复完成后滚动锚点
     @State private var scrollTarget: String?
+    /// 仅当本次打开的回复 sheet 真的发送成功才刷新+滚动（关闭取消不该动列表）
+    @State private var replyPosted = false
 
     /// 楼中楼导航目标
     struct FloorSelection: Hashable {
@@ -274,9 +287,9 @@ struct ThreadPage: View {
             .navigationBarTitleDisplayMode(.inline)
             .bottomBarHidden()
             // 底部回复栏（对齐 Android ThreadPage BottomBar 2021-2060：回复输入框 + 全帖点赞）；
-            // 悬浮胶囊样式与主底栏一致（用户验收：不要全宽贴边条）
+            // 悬浮胶囊 + Liquid Glass（与主底栏一致）；安全模式（只读）不显示（用户验收）
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if posts.isEmpty || immersive {
+                if posts.isEmpty || immersive || AppPreferences.shared.safeMode {
                     Color.clear.frame(height: 0)
                 } else {
                     HStack(spacing: 12) {
@@ -301,13 +314,7 @@ struct ThreadPage: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(.regularMaterial,
-                                in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 26, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-                    }
-                    .shadow(color: .black.opacity(0.16), radius: 10, y: 3)
+                    .floatingBarBackground(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                     .padding(.horizontal, 14)
                     .padding(.bottom, 4)
                 }
@@ -407,12 +414,15 @@ struct ThreadPage: View {
                 ReplySheet(threadId: threadID, forumId: resolvedForumId,
                            forumName: forumName.isEmpty ? "" : forumName,
                            postId: Int64(bitPattern: replyToFloor?.id ?? 0),
-                           quoteHint: replyToFloor.map { "回复 @\($0.displayAuthorName)" } ?? "")
+                           quoteHint: replyToFloor.map { "回复 @\($0.displayAuthorName)" } ?? "",
+                           onReplied: { replyPosted = true })
             }
             .onChange(of: showReply) { showing in
-                // 回复后刷新并滚到自己楼层（对齐 Android 回复成功滚动；sheet 关闭且非楼层回复时刷新）
+                // 仅回复成功后刷新并滚到自己楼层；直接关闭 sheet 不动列表（用户反馈：关闭即回滚底部）
                 if !showing {
-                    replyToFloor = nil
+                    defer { replyToFloor = nil }
+                    guard replyPosted else { return }
+                    replyPosted = false
                     Task {
                         await reload()
                         try? await Task.sleep(nanoseconds: 300_000_000)
@@ -503,6 +513,8 @@ struct ThreadPage: View {
     }
 
     private func openPhoto(_ urls: [String], _ index: Int) {
+        // 空列表不打 开查看器（防御：永不出现「无图片」占位页）
+        guard !urls.isEmpty else { return }
         photoUrls = urls
         photoIndex = index
         showPhoto = true
@@ -939,6 +951,7 @@ struct FloorDetailPage: View {
                                 }
                                 PbContentView(contents: hostPost.content, fontSize: .footnote,
                                               onImageTap: { urls, index in
+                                                  guard !urls.isEmpty else { return }
                                                   photoUrls = urls; photoIndex = index
                                                   showPhoto = true
                                               })
@@ -1019,6 +1032,7 @@ struct FloorDetailPage: View {
             }
             PbContentView(contents: sub.content, fontSize: .footnote,
                           onImageTap: { urls, index in
+                              guard !urls.isEmpty else { return }
                               photoUrls = urls; photoIndex = index; showPhoto = true
                           })
             HStack(spacing: 12) {
@@ -1140,6 +1154,8 @@ struct ReplySheet: View {
     var quoteHint: String = ""
     /// 发新主题贴的标题（threadId==0 时使用）
     var threadTitle: String = ""
+    /// 发送成功回调（调用方据此刷新列表；取消关闭不触发）
+    var onReplied: (() -> Void)? = nil
 
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var prefs = AppPreferences.shared
@@ -1358,6 +1374,7 @@ struct ReplySheet: View {
                     replyUserId: replyUserId != 0 ? "\(replyUserId)" : nil)
             }
             DraftStore.delete(draftKey)
+            onReplied?()
             dismiss()
         } catch {
             errorText = error.localizedDescription

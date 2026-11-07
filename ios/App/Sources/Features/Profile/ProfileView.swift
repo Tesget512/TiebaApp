@@ -6,6 +6,13 @@ struct ProfileView: View {
     @State private var showLogin = false
     @State private var profile: Tieba_Profile_ProfileResponseData?
     @State private var isLoading = false
+    /// 统计/卡片跳转目标（同一 List 行内放多个 NavigationLink 会一次全触发，
+    /// 改为 Button + navigationDestination(item:) 单跳）
+    @State private var statRoute: StatRoute?
+
+    enum StatRoute: Hashable {
+        case profile, following, followers, myThreads, myReplies
+    }
 
     var body: some View {
         NavigationStack {
@@ -19,19 +26,18 @@ struct ProfileView: View {
                                 if let user = profile?.user {
                                     HStack(spacing: 14) {
                                         // 统计可点（对齐 Android UserPage：跳对应列表）
-                                        NavigationLink {
-                                            FollowListView(isFollow: true, uid: Int64(account.uid) ?? 0)
-                                        } label: { statItem("关注", user.concernNum) }
-                                            .buttonStyle(.plain)
-                                        NavigationLink {
-                                            FollowListView(isFollow: false, uid: Int64(account.uid) ?? 0)
-                                        } label: { statItem("粉丝", user.fansNum) }
-                                            .buttonStyle(.plain)
-                                        NavigationLink {
-                                            UserPostListPage(uid: Int64(account.uid) ?? 0,
-                                                             name: account.name, isThread: false)
-                                        } label: { statItem("发帖", user.postNum) }
-                                            .buttonStyle(.plain)
+                                        Button { statRoute = .following } label: {
+                                            statItem("关注", user.concernNum)
+                                        }
+                                        .buttonStyle(.plain)
+                                        Button { statRoute = .followers } label: {
+                                            statItem("粉丝", user.fansNum)
+                                        }
+                                        .buttonStyle(.plain)
+                                        Button { statRoute = .myThreads } label: {
+                                            statItem("发帖", user.postNum)
+                                        }
+                                        .buttonStyle(.plain)
                                     }
                                 } else {
                                     Text("UID: \(account.uid)")
@@ -40,6 +46,8 @@ struct ProfileView: View {
                             }
                         }
                         .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                        .onTapGesture { statRoute = .profile } // 点卡片进我的主页
                     }
 
                     Section {
@@ -126,7 +134,26 @@ struct ProfileView: View {
                     }
                 }
             }
+            // 底部内容让位悬浮底栏（TabView 层的 safeAreaInset 不穿透到 tab 内容，
+            // 必须每个 tab 根页自行让位，否则最后一项被挡）
+            .safeAreaPadding(.bottom, 70)
             .navigationTitle("我的")
+            .navigationDestination(item: $statRoute) { route in
+                switch route {
+                case .profile:
+                    UserProfilePage(uid: Int64(appState.account?.uid ?? "") ?? 0)
+                case .following:
+                    FollowListView(isFollow: true, uid: Int64(appState.account?.uid ?? "") ?? 0)
+                case .followers:
+                    FollowListView(isFollow: false, uid: Int64(appState.account?.uid ?? "") ?? 0)
+                case .myThreads:
+                    UserPostListPage(uid: Int64(appState.account?.uid ?? "") ?? 0,
+                                     name: appState.account?.name ?? "", isThread: true)
+                case .myReplies:
+                    UserPostListPage(uid: Int64(appState.account?.uid ?? "") ?? 0,
+                                     name: appState.account?.name ?? "", isThread: false)
+                }
+            }
             .sheet(isPresented: $showLogin) { LoginView() }
             .task(id: appState.account?.uid) { await loadProfile() }
         }
@@ -151,67 +178,126 @@ struct ProfileView: View {
     }
 }
 
-/// 我的关注吧（对应 Android `UserLikeForumPage` 的精简版）
+/// 我的关注吧（对齐 Android `UserLikeForumPage`：
+/// `/c/f/forum/like` official 通道，page_no/page_size/uid；
+/// 此前误用 /c/u/feed/userlikeforum + like_forum 解析 → 恒空）
 struct MyForumsView: View {
-    @State private var forums: [Tieba_ForumInfo] = []
+    struct LikeForum: Identifiable {
+        let id: String
+        let name: String
+        let levelId: String
+        let avatar: String
+    }
+
+    @State private var forums: [LikeForum] = []
     @State private var isLoading = false
+    @State private var errorText: String?
 
     var body: some View {
         Group {
             if isLoading && forums.isEmpty {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let err = errorText, forums.isEmpty {
+                UnavailableView(title: "加载失败", systemImage: "square.grid.2x2",
+                                description: err,
+                                retry: { Task { await load() } })
             } else if forums.isEmpty {
                 UnavailableView(title: "暂无关注的吧", systemImage: "square.grid.2x2")
             } else {
-                List(forums, id: \.forumID) { f in
+                List(forums) { f in
                     NavigationLink {
-                        ForumPage(forumName: f.forumName)
+                        ForumPage(forumName: f.name)
                     } label: {
                         HStack(spacing: 10) {
-                            AvatarView(url: URL(string: f.avatar), size: 36)
+                            AvatarView(url: tiebaImageURL(f.avatar), size: 36)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(f.forumName).font(.subheadline.weight(.medium))
-                                Text("关注 \(f.concernNum)").font(.caption).foregroundStyle(.secondary)
+                                Text(f.name).font(.subheadline.weight(.medium))
+                                Text("\(f.levelId)级").font(.caption).foregroundStyle(.secondary)
                             }
                         }
                     }
                 }
+                .listStyle(.insetGrouped)
+                .refreshable { await load() }
             }
         }
         .navigationTitle("我的关注吧")
-        .task { await load() }
+        .task { if forums.isEmpty { await load() } }
     }
 
     private func load() async {
-        guard let account = TiebaJSONClient.shared.accountProvider(),
-              !account.uid.isEmpty else { return }
+        guard TiebaJSONClient.shared.accountProvider() != nil else {
+            errorText = "请先登录"
+            return
+        }
         isLoading = true
         defer { isLoading = false }
         do {
-            let data = try await TiebaJSONClient.shared.post(
-                path: "/c/u/feed/userlikeforum",
-                params: ["uid": account.uid, "page": "1", "rn": "200"],
-                channel: .official)
-            struct Resp: Decodable {
-                struct Forum: Decodable {
-                    let forum_id: FlexibleInt?
-                    let forum_name: String?
-                    let avatar: String?
-                    let level_id: FlexibleInt?
-                }
-                let error_code: FlexibleString?
-                let like_forum: [Forum]?
-            }
-            let resp = try TiebaJSONClient.decode(Resp.self, from: data)
-            forums = (resp.like_forum ?? []).map { f in
-                var info = Tieba_ForumInfo()
-                info.forumID = UInt32(f.forum_id?.value ?? 0)
-                info.forumName = f.forum_name ?? ""
-                info.avatar = f.avatar ?? ""
-                return info
-            }
+            forums = try await Self.fetchLikeForums(uid: nil)
+            errorText = nil
         } catch {
+            errorText = error.localizedDescription
             forums = []
         }
+    }
+
+    /// 拉取关注吧列表（uid=nil 查自己；uid=他人时走 friend_uid/is_guest，
+    /// 对齐 Android MixedTiebaApiImpl.userLikeForumFlow:1566）
+    static func fetchLikeForums(uid: Int64?) async throws -> [LikeForum] {
+        guard let account = TiebaJSONClient.shared.accountProvider(),
+              !account.uid.isEmpty else { throw TiebaAPIError.notLoggedIn }
+        let myUid = Int64(account.uid) ?? 0
+        let isSelf = uid == nil || uid == myUid
+        var params = ["page_no": "1", "page_size": "50", "uid": account.uid]
+        if !isSelf, let uid {
+            params["friend_uid"] = "\(uid)"
+            params["is_guest"] = "1"
+        }
+        let data = try await TiebaJSONClient.shared.post(
+            path: "/c/f/forum/like", params: params,
+            channel: .official, forceLogin: true)
+        struct Resp: Decodable {
+            struct ForumList: Decodable {
+                let forumList: [Forum]?
+                /// 服务端键名 "non-gconforum"（含连字符，自定义 CodingKeys）
+                let nonGconforum: [Forum]?
+                enum CodingKeys: String, CodingKey {
+                    case forumList = "forum_list"
+                    case nonGconforum = "non-gconforum"
+                }
+            }
+            struct Forum: Decodable {
+                let id: FlexibleString?
+                let name: String?
+                let level_id: FlexibleString?
+                let avatar: String?
+            }
+            let error_code: FlexibleString?
+            let error: ForumError?
+            let forum_list: ForumList?
+            let common_forum_list: ForumList?
+            struct ForumError: Decodable {
+                let errno: FlexibleString?
+                let errmsg: String?
+            }
+        }
+        let resp = try TiebaJSONClient.decode(Resp.self, from: data)
+        if let code = resp.error_code?.value, code != "0" {
+            throw TiebaAPIError.apiError(code: Int(code) ?? -1,
+                                         message: resp.error?.errmsg ?? "获取关注吧失败")
+        }
+        var list: [LikeForum] = []
+        let seen = NSMutableSet()
+        for f in (resp.forum_list?.nonGconforum ?? [])
+            + (resp.forum_list?.forumList ?? [])
+            + (resp.common_forum_list?.nonGconforum ?? []) {
+            let id = f.id?.value ?? ""
+            guard !id.isEmpty, !seen.contains(id) else { continue }
+            seen.add(id)
+            list.append(LikeForum(id: id, name: f.name ?? "",
+                                  levelId: f.level_id?.value ?? "0",
+                                  avatar: f.avatar ?? ""))
+        }
+        return list
     }
 }

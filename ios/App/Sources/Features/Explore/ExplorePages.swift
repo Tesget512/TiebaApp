@@ -240,6 +240,8 @@ struct HomeFeedPage: View {
                     }
                     .listStyle(.insetGrouped)
                     .refreshable { await load() }
+                    // tab 根页内容让位悬浮底栏（RootView ZStack 覆盖，见 RootView 注释）
+                    .safeAreaPadding(.bottom, 70)
                 }
             }
             .navigationTitle("进吧")
@@ -313,41 +315,32 @@ struct HomeFeedPage: View {
         .contextMenu { forumContextMenu(f) }
     }
 
-    /// 吧卡片（两列）：按钮 + path.append（Grid 内 NavigationLink 会带出行样式）
+    /// 吧卡片（两列）：紧凑版——头像 + 吧名 + 等级（用户反馈：砍掉热帖行/箭头，优化空间）
     private func forumCard(_ f: Tieba_ForumRecommend_LikeForum) -> some View {
         Button {
             path.append(AppRoute.forum(f.forumName))
         } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                forumAvatar(f, side: 56, radius: 12)
+            VStack(alignment: .leading, spacing: 6) {
+                forumAvatar(f, side: 48, radius: 10)
                 HStack(spacing: 4) {
                     if prefs.isPinnedForum(f.forumName) {
                         Image(systemName: "pin.fill")
                             .font(.caption2).foregroundStyle(.orange)
                     }
                     Text(f.forumName)
-                        .font(.subheadline.weight(.medium))
+                        .font(.footnote.weight(.medium))
                         .lineLimit(1)
                 }
-                if !f.content.isEmpty {
-                    Text(f.content).font(.caption)
-                        .foregroundStyle(.secondary).lineLimit(1)
-                }
-                HStack(spacing: 6) {
-                    if f.isSign != 0 {
-                        Text("已签").font(.caption2).foregroundStyle(.green)
-                    } else {
-                        Text("\(f.levelID)级").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                if f.isSign != 0 {
+                    Text("已签").font(.caption2).foregroundStyle(.green)
+                } else {
+                    Text("\(f.levelID)级").font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            .padding(10)
+            .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .contextMenu { forumContextMenu(f) }
@@ -446,19 +439,24 @@ struct ThreadStorePage: View {
                         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                             // 收藏贴自动只看楼主/倒序（Android HabitSettings）
                             NavigationLink(value: AppRoute.thread(
-                                id: item.tid?.value ?? 0,
+                                id: Int64(item.thread_id?.value ?? "") ?? 0,
                                 title: item.title ?? "",
-                                forumId: item.forum_id?.value ?? 0,
+                                forumId: 0,
                                 onlyLz: AppPreferences.shared.storeAutoLz,
                                 desc: AppPreferences.shared.storeAutoDesc)) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.title ?? "").font(.subheadline).lineLimit(2)
+                                    HStack(spacing: 6) {
+                                        if item.is_deleted?.value == "1" {
+                                            Text("已删除").font(.caption2).foregroundStyle(.red)
+                                        }
+                                        Text(item.title ?? "").font(.subheadline).lineLimit(2)
+                                    }
                                     HStack(spacing: 8) {
-                                        if let fname = item.fname, !fname.isEmpty {
+                                        if let fname = item.forum_name, !fname.isEmpty {
                                             Text(fname).font(.caption2).foregroundStyle(.blue)
                                         }
-                                        if let n = item.reply_num?.value {
-                                            Text("回复 \(n)").font(.caption2).foregroundStyle(.secondary)
+                                        if let last = item.last_time?.value, !last.isEmpty {
+                                            Text(last).font(.caption2).foregroundStyle(.secondary)
                                         }
                                     }
                                 }
@@ -485,7 +483,7 @@ struct ThreadStorePage: View {
         defer { isLoading = false }
         do {
             let resp = try await TiebaWriteEndpoints.threadStore()
-            items = resp.thread_store ?? []
+            items = resp.store_thread ?? []
             errorText = nil
         } catch {
             errorText = error.localizedDescription
@@ -494,7 +492,7 @@ struct ThreadStorePage: View {
 
     private func remove(at offsets: IndexSet) async {
         for i in offsets {
-            guard let tid = items[i].tid?.value else { continue }
+            guard let tid = Int64(items[i].thread_id?.value ?? "") else { continue }
             try? await TiebaWriteEndpoints.removeStore(threadId: tid)
         }
         items.remove(atOffsets: offsets)
@@ -632,6 +630,9 @@ struct UserPostListPage: View {
     let isThread: Bool
 
     @State private var posts: [Tieba_PostInfoList] = []
+    /// 官方回帖接口缺陷（is_thread=0 恒空，2026-09 起）→ eztb 只读镜像（Android 同策略）
+    @State private var replies: [UserReplyItem] = []
+    @State private var usingMirror = false
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var errorText: String?
@@ -642,66 +643,151 @@ struct UserPostListPage: View {
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if isLoading && posts.isEmpty {
+                if isLoading && posts.isEmpty && replies.isEmpty {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let err = errorText, posts.isEmpty {
+                } else if let err = errorText, posts.isEmpty && replies.isEmpty {
                     UnavailableView(title: "加载失败", systemImage: "doc.text",
                                     description: err)
+                } else if usingMirror {
+                    mirrorList
                 } else {
-                    List {
-                        ForEach(Array(posts.enumerated()), id: \.offset) { _, post in
-                            NavigationLink(value: AppRoute.thread(
-                                id: Int64(bitPattern: post.threadID),
-                                title: post.title,
-                                forumId: Int64(bitPattern: post.forumID))) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    if post.isThread != 0, !post.title.isEmpty {
-                                        Text(post.title).font(.subheadline).lineLimit(2)
-                                    }
-                                    if !post.contentThread.isEmpty {
-                                        Text(post.contentThread).font(.caption)
-                                            .foregroundStyle(.secondary).lineLimit(2)
-                                    }
-                                    HStack(spacing: 8) {
-                                        if !post.forumName.isEmpty {
-                                            Text(post.forumName).font(.caption2).foregroundStyle(.blue)
-                                        }
-                                        Text(relativeTime(fromUnixSeconds: Int64(post.createTime)))
-                                            .font(.caption2).foregroundStyle(.secondary)
-                                        Text("回复 \(post.replyNum)").font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                }
-                                .padding(.vertical, 2)
-                            }
-                        }
-                        if hasMore {
-                            LoadMoreFooter { await loadMore() }
-                        }
-                    }
-                    .listStyle(.insetGrouped)
-                    .refreshable { await load() }
+                    officialList
                 }
             }
             .navigationTitle(isThread ? "\(name)的主题贴" : "\(name)的回复")
             .navigationBarTitleDisplayMode(.inline)
             .bottomBarHidden()
-            .task { if posts.isEmpty { await load() } }
+            .task { if posts.isEmpty && replies.isEmpty { await load() } }
             .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
         }
+    }
+
+    /// 主题贴/官方回帖行
+    private var officialList: some View {
+        List {
+            ForEach(Array(posts.enumerated()), id: \.offset) { _, post in
+                NavigationLink(value: AppRoute.thread(
+                    id: Int64(bitPattern: post.threadID),
+                    title: post.title,
+                    forumId: Int64(bitPattern: post.forumID))) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if post.isThread != 0, !post.title.isEmpty {
+                            Text(post.title).font(.subheadline).lineLimit(2)
+                        }
+                        if !post.contentThread.isEmpty {
+                            Text(post.contentThread).font(.caption)
+                                .foregroundStyle(.secondary).lineLimit(2)
+                        }
+                        HStack(spacing: 8) {
+                            if !post.forumName.isEmpty {
+                                Text(post.forumName).font(.caption2).foregroundStyle(.blue)
+                            }
+                            Text(relativeTime(fromUnixSeconds: Int64(post.createTime)))
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Text("回复 \(post.replyNum)").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            if hasMore {
+                LoadMoreFooter { await loadMore() }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .refreshable { await load() }
+    }
+
+    /// 镜像回帖行（Android UserPostPage 结构：回复内容 + 时间 + 原帖标题卡片）
+    private var mirrorList: some View {
+        List {
+            ForEach(Array(replies.enumerated()), id: \.offset) { _, reply in
+                NavigationLink(value: AppRoute.thread(
+                    id: Int64(reply.threadId ?? "") ?? 0,
+                    title: reply.title ?? "",
+                    forumId: reply.forumId ?? 0)) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(reply.content ?? "")
+                            .font(.subheadline)
+                            .lineLimit(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            if let fname = reply.forumName, !fname.isEmpty {
+                                Text(fname).font(.caption2).foregroundStyle(.blue)
+                            }
+                            Text(relativeTime(fromUnixSeconds: reply.createTime ?? 0))
+                                .font(.caption2).foregroundStyle(.secondary)
+                            if let to = reply.replyTo, !to.isEmpty {
+                                Text("回复 @\(to)").font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        if let t = reply.title, !t.isEmpty {
+                            // 原帖标题卡片（Android floorCard 样式）
+                            Text("原帖：\(t)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(.secondarySystemGroupedBackground),
+                                            in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            if hasMore {
+                LoadMoreFooter { await loadMore() }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .refreshable { await load() }
     }
 
     private func load() async {
         isLoading = true
         defer { isLoading = false }
+        if isThread {
+            do {
+                let data = try await TiebaExtraEndpoints.userPost(client: .shared, uid: uid,
+                                                                  page: 1, isThread: true)
+                posts = data.postList
+                page = 1
+                hasMore = !data.postList.isEmpty
+                errorText = nil
+            } catch {
+                errorText = error.localizedDescription
+            }
+            return
+        }
+        // 回帖：官方优先，空/失败时降级镜像（对齐 Android UserPostViewModel 降级策略：
+        // 由「数据为空」触发而非异常触发；第 1 页镜像失败才显示错误页）
+        var officialEmpty = false
         do {
             let data = try await TiebaExtraEndpoints.userPost(client: .shared, uid: uid,
-                                                              page: 1, isThread: isThread)
-            posts = data.postList
-            page = 1
-            hasMore = !data.postList.isEmpty
-            errorText = nil
+                                                              page: 1, isThread: false)
+            if data.postList.isEmpty {
+                officialEmpty = true
+            } else {
+                posts = data.postList
+                hasMore = true
+                errorText = nil
+                return
+            }
         } catch {
-            errorText = error.localizedDescription
+            officialEmpty = true
+        }
+        if officialEmpty {
+            do {
+                replies = try await UserReplyMirror.fetch(uid: uid, page: 1)
+                usingMirror = true
+                page = 1
+                hasMore = !replies.isEmpty
+                errorText = nil
+            } catch {
+                errorText = "回帖数据源不可用：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -709,15 +795,27 @@ struct UserPostListPage: View {
         guard !isLoadingMore, hasMore else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
-        do {
+        if usingMirror {
+            // 镜像加载更多失败静默停止（对齐 Android：page>1 失败返回空）
             let next = page + 1
-            let data = try await TiebaExtraEndpoints.userPost(client: .shared, uid: uid,
-                                                              page: next, isThread: isThread)
-            posts += data.postList
+            guard let more = try? await UserReplyMirror.fetch(uid: uid, page: next),
+                  !more.isEmpty else {
+                hasMore = false
+                return
+            }
+            replies += more
             page = next
-            hasMore = !data.postList.isEmpty
-        } catch {
-            errorText = error.localizedDescription
+        } else {
+            do {
+                let next = page + 1
+                let data = try await TiebaExtraEndpoints.userPost(client: .shared, uid: uid,
+                                                                  page: next, isThread: isThread)
+                posts += data.postList
+                page = next
+                hasMore = !data.postList.isEmpty
+            } catch {
+                errorText = error.localizedDescription
+            }
         }
     }
 }

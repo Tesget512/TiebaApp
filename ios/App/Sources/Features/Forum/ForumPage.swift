@@ -150,8 +150,8 @@ struct ForumPage: View {
                        threadTitle: "")
         }
         .overlay(alignment: .bottomTrailing) {
-            // FAB（对应 Android forumFabFunction 默认 post）
-            if appState.isLoggedIn {
+            // FAB（对应 Android forumFabFunction 默认 post）；安全模式只读不显示
+            if appState.isLoggedIn && !AppPreferences.shared.safeMode {
                 Button {
                     showNewPost = true
                 } label: {

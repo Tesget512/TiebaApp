@@ -253,3 +253,59 @@ enum TiebaExtraEndpoints {
         return resp.data
     }
 }
+
+// MARK: - 用户回帖只读镜像（对齐 Android UserReplyRemoteDataSource）
+//
+// 背景（Android UserReplyRemoteDataSource.kt 注释）：官方 protobuf 接口
+// `POST /c/u/feed/userpost?cmd=303002` 的 is_thread=0（回帖）分支自 2026-09 起
+// 服务端缺陷：HTTP 200、error_code=0，但 post_list 恒为空。
+// 官方 is_thread=1（主题帖）正常。回帖降级用社区只读镜像 eztb（游客可用，
+// 每页 30 条，末页返回 []，对象响应视为空）。
+
+struct UserReplyItem: Decodable {
+    let forumId: Int64?
+    let forumName: String?
+    let title: String?
+    let threadId: String?
+    let postId: String?
+    let cid: String?
+    let createTime: Int64?
+    let affiliated: Bool?
+    let content: String?
+    let replyTo: String?
+}
+
+enum UserReplyMirror {
+    static let hosts = ["https://zwrcjbwbskoa.sealosbja.site",
+                        "https://cf.eztb.org"]
+
+    /// 拉取某用户第 page 页回帖；全部镜像源失败时抛出最后一个错误
+    static func fetch(uid: Int64, page: Int) async throws -> [UserReplyItem] {
+        guard uid > 0, page >= 1 else { throw TiebaAPIError.invalidURL }
+        var lastError: Error = TiebaAPIError.invalidURL
+        for host in hosts {
+            do { return try await fetchFrom(host, uid, page) } catch { lastError = error }
+        }
+        throw lastError
+    }
+
+    private static func fetchFrom(_ host: String, _ uid: Int64, _ page: Int) async throws -> [UserReplyItem] {
+        guard let url = URL(string: "\(host)/user/posts?method=id&id=\(uid)&page=\(page)") else {
+            throw TiebaAPIError.invalidURL
+        }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.setValue("tieba/12.52.1.0", forHTTPHeaderField: "User-Agent")
+        req.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        req.setValue("https://www.eztb.org/", forHTTPHeaderField: "Referer")
+        req.setValue("https://www.eztb.org", forHTTPHeaderField: "Origin")
+        req.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw TiebaAPIError.httpStatus(http.statusCode)
+        }
+        let trimmed = String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed.hasPrefix("{") { return [] } // 末页 / 错误对象按空处理
+        return try JSONDecoder().decode([UserReplyItem].self, from: data)
+    }
+}

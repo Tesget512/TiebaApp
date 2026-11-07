@@ -403,10 +403,14 @@ enum PhotoSaver {
     }
 }
 
-/// 贴吧图片 URL 解析：含中文/空格等未转义字符时百分号编码兜底
+/// 贴吧图片 URL 解析：`//host/path` 协议相对地址补 https（Glide 支持、URL(string:) 不支持），
+/// 含中文/空格等未转义字符时百分号编码兜底
 func tiebaImageURL(_ s: String) -> URL? {
-    URL(string: s)
-        ?? URL(string: s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s)
+    var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    if t.isEmpty { return nil }
+    if t.hasPrefix("//") { t = "https:" + t }
+    return URL(string: t)
+        ?? URL(string: t.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? t)
 }
 
 /// 可双指缩放图片

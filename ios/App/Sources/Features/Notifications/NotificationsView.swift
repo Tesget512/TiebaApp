@@ -37,19 +37,18 @@ struct NotificationsView: View {
                 }
             }
             .navigationTitle("通知")
-            .safeAreaInset(edge: .top) {
-                if appState.isLoggedIn {
-                    Picker("类型", selection: $tab) {
-                        ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.bar)
-                }
-            }
-            .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
+            .navigationBarTitleDisplayMode(.inline)
+            // 分类选择器放导航栏 principal 位（原 safeAreaInset 顶部叠加大段空隙，用户反馈 ???）
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    if appState.isLoggedIn {
+                        Picker("类型", selection: $tab) {
+                            ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 260)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     // 搜索入口（Android NotificationsPage.kt:139-145）
                     NavigationLink(value: AppRoute.search) {
@@ -57,9 +56,11 @@ struct NotificationsView: View {
                     }
                 }
             }
+            .navigationDestination(for: AppRoute.self) { RouteView(route: $0) }
             .task { if appState.isLoggedIn { await load() } }
             .onChange(of: tab) { _ in Task { await load() } }
             .onAppear { NotifyBadge.shared.count = 0 } // 进入通知页视为已读
+            .safeAreaPadding(.bottom, 70) // tab 根页内容让位悬浮底栏
         }
     }
 

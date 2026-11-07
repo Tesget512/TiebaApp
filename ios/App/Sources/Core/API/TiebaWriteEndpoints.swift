@@ -252,8 +252,9 @@ enum TiebaWriteEndpoints {
             "_client_version": ClientVersion.v12.rawValue,
         ]
         let data = try await TiebaJSONClient.shared.post(path: "/c/f/post/threadstore",
-                                                         params: params, channel: .official,
-                                                         forceLogin: true)
+                                                        params: params, channel: .official,
+                                                        forceLogin: true,
+                                                        headers: ["Cookie": "ka=open"])
         return try TiebaJSONClient.decode(ThreadStoreResponse.self, from: data)
     }
 
@@ -572,29 +573,27 @@ struct PermissionList: Codable {
 }
 
 /// `/c/f/post/threadstore` 响应（对应 Android `ThreadStoreBean`）
+/// `/c/f/post/threadstore` 响应（字段名对齐 Android ThreadStoreBean.kt，
+/// 此前凭记忆写成 tid/fname/reply_num 导致解码全 nil、收藏页恒空）
 struct ThreadStoreResponse: Decodable {
     struct StoreInfo: Decodable {
-        let tid: FlexibleInt?
-        let pid: FlexibleInt?
+        let thread_id: FlexibleString?
         let title: String?
-        let fname: String?
-        let forum_id: FlexibleInt?
-        let reply_num: FlexibleInt?
+        let forum_name: String?
         let author: StoreAuthor?
-        let create_time: FlexibleInt?
+        let is_deleted: FlexibleString?
+        let last_time: FlexibleString?
+        let count: FlexibleString?
+        let post_no: FlexibleString?
+        let mark_pid: FlexibleString?
     }
     struct StoreAuthor: Decodable {
-        let id: FlexibleInt?
+        let lz_uid: FlexibleString?
         let name: String?
         let name_show: String?
-        let portrait: String?
-    }
-    struct Page: Decodable {
-        let current_page: FlexibleInt?
-        let has_more: FlexibleInt?
+        let user_portrait: String?
     }
     let error_code: FlexibleString?
     let error_msg: String?
-    let thread_store: [StoreInfo]?
-    let page: Page?
+    let store_thread: [StoreInfo]?
 }

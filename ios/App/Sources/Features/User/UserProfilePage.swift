@@ -12,6 +12,14 @@ struct UserProfilePage: View {
     @State private var toast: String?
     @State private var showReplyDisabled = false
 
+    // MARK: 内容 tab（Android UserPage pages：threads/posts/concern_forums，后两个仅自己）
+    enum UpTab: Hashable { case threads, replies, forums }
+    @State private var upTab: UpTab = .threads
+    @State private var upPosts: [Tieba_PostInfoList] = []
+    @State private var upReplies: [UserReplyItem] = []
+    @State private var upForums: [MyForumsView.LikeForum] = []
+    @State private var upLoading = false
+
     var body: some View {
         Group {
             if isLoading && data == nil {
@@ -46,6 +54,7 @@ struct UserProfilePage: View {
             Text("禁止 TA 关注 / 互动 / 私信（perm_list 将提交到 setUserBlack）")
         }
         .task { await load() }
+        .task(id: upTab) { await loadUpTab() }
     }
 
     @ViewBuilder
@@ -75,32 +84,48 @@ struct UserProfilePage: View {
                 .frame(maxWidth: .infinity)
             }
 
-            // 操作区（对齐 Android：关注/取关、TA的帖子、互动分析）
+            // 内容 tab（对齐 Android UserPage ScrollableTabRow：主题贴/回帖/关注的吧，
+            // 后两个仅自己可见——Android takeIf { isSelf }）
+            if isSelfProfile {
+                Section {
+                    Picker("内容", selection: $upTab) {
+                        Text("主题贴").tag(UpTab.threads)
+                        Text("回帖").tag(UpTab.replies)
+                        Text("关注的吧").tag(UpTab.forums)
+                    }
+                    .pickerStyle(.segmented)
+                    upTabContent
+                }
+            }
+
+            // 操作区（对齐 Android：TA的帖子、互动分析、拉黑；自己时列表已在 tab 内不再重复）
             Section {
-                NavigationLink {
-                    UserPostListPage(uid: uid, name: displayName(data), isThread: true)
-                } label: {
-                    Label("TA 的主题贴", systemImage: "doc.text")
-                }
-                NavigationLink {
-                    UserPostListPage(uid: uid, name: displayName(data), isThread: false)
-                } label: {
-                    Label("TA 的回复", systemImage: "bubble.right")
-                }
-                NavigationLink {
-                    FollowListView(isFollow: true, uid: uid)
-                } label: {
-                    Label("关注 \(shortNum(Int64(data.user.concernNum)))", systemImage: "person.badge.plus")
-                }
-                NavigationLink {
-                    FollowListView(isFollow: false, uid: uid)
-                } label: {
-                    Label("粉丝 \(shortNum(Int64(data.user.fansNum)))", systemImage: "person.2")
-                }
-                NavigationLink {
-                    UserLikeForumListPage(uid: uid)
-                } label: {
-                    Label("TA 关注的吧", systemImage: "square.grid.2x2")
+                if !isSelfProfile {
+                    NavigationLink {
+                        UserPostListPage(uid: uid, name: displayName(data), isThread: true)
+                    } label: {
+                        Label("TA 的主题贴", systemImage: "doc.text")
+                    }
+                    NavigationLink {
+                        UserPostListPage(uid: uid, name: displayName(data), isThread: false)
+                    } label: {
+                        Label("TA 的回复", systemImage: "bubble.right")
+                    }
+                    NavigationLink {
+                        FollowListView(isFollow: true, uid: uid)
+                    } label: {
+                        Label("关注 \(shortNum(Int64(data.user.concernNum)))", systemImage: "person.badge.plus")
+                    }
+                    NavigationLink {
+                        FollowListView(isFollow: false, uid: uid)
+                    } label: {
+                        Label("粉丝 \(shortNum(Int64(data.user.fansNum)))", systemImage: "person.2")
+                    }
+                    NavigationLink {
+                        UserLikeForumListPage(uid: uid)
+                    } label: {
+                        Label("TA 关注的吧", systemImage: "square.grid.2x2")
+                    }
                 }
                 NavigationLink {
                     PostAnalysisPage(uid: uid, name: displayName(data))
@@ -116,7 +141,7 @@ struct UserProfilePage: View {
                 }
             }
 
-            if !data.postList.isEmpty {
+            if !isSelfProfile, !data.postList.isEmpty {
                 Section("最近发帖") {
                     ForEach(Array(data.postList.enumerated()), id: \.offset) { _, post in
                         NavigationLink {
@@ -163,6 +188,108 @@ struct UserProfilePage: View {
 
     private var selfUid: Int64 { Int64(appState.account?.uid ?? "") ?? 0 }
     private var isSelfProfile: Bool { uid == selfUid }
+
+    // MARK: 内容 tab 数据与行
+
+    private func loadUpTab() async {
+        guard isSelfProfile else { return }
+        upLoading = true
+        defer { upLoading = false }
+        switch upTab {
+        case .threads:
+            if upPosts.isEmpty {
+                let data = try? await TiebaExtraEndpoints.userPost(
+                    client: .shared, uid: uid, page: 1, isThread: true)
+                upPosts = data?.postList ?? []
+            }
+        case .replies:
+            if upReplies.isEmpty {
+                // 官方回帖接口缺陷恒空 → 直接走只读镜像（Android 同策略）
+                upReplies = (try? await UserReplyMirror.fetch(uid: uid, page: 1)) ?? []
+            }
+        case .forums:
+            if upForums.isEmpty {
+                upForums = (try? await MyForumsView.fetchLikeForums(uid: uid)) ?? []
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var upTabContent: some View {
+        if upLoading {
+            HStack { Spacer(); ProgressView(); Spacer() }
+                .padding(.vertical, 12)
+        } else {
+            switch upTab {
+            case .threads:
+                if upPosts.isEmpty {
+                    Text("暂无主题贴").font(.footnote).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 8)
+                }
+                ForEach(Array(upPosts.prefix(20).enumerated()), id: \.offset) { _, post in
+                    NavigationLink {
+                        RouteView(route: .thread(id: Int64(bitPattern: post.threadID),
+                                                 title: post.title,
+                                                 forumId: Int64(bitPattern: post.forumID)))
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(post.title.isEmpty ? post.contentThread : post.title)
+                                .font(.subheadline).lineLimit(2)
+                            HStack(spacing: 8) {
+                                if !post.forumName.isEmpty {
+                                    Text(post.forumName).font(.caption2).foregroundStyle(.blue)
+                                }
+                                Text(relativeTime(fromUnixSeconds: Int64(post.createTime)))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            case .replies:
+                if upReplies.isEmpty {
+                    Text("暂无回帖").font(.footnote).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 8)
+                }
+                ForEach(Array(upReplies.prefix(20).enumerated()), id: \.offset) { _, reply in
+                    NavigationLink {
+                        RouteView(route: .thread(id: Int64(reply.threadId ?? "") ?? 0,
+                                                 title: reply.title ?? "",
+                                                 forumId: reply.forumId ?? 0))
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(reply.content ?? "").font(.subheadline).lineLimit(3)
+                            HStack(spacing: 8) {
+                                if let fname = reply.forumName, !fname.isEmpty {
+                                    Text(fname).font(.caption2).foregroundStyle(.blue)
+                                }
+                                Text(relativeTime(fromUnixSeconds: reply.createTime ?? 0))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            case .forums:
+                if upForums.isEmpty {
+                    Text("暂无关注的吧").font(.footnote).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 8)
+                }
+                ForEach(upForums) { f in
+                    NavigationLink {
+                        RouteView(route: .forum(f.name))
+                    } label: {
+                        HStack(spacing: 10) {
+                            AvatarView(url: tiebaImageURL(f.avatar), size: 32)
+                            Text(f.name).font(.subheadline)
+                            Spacer()
+                            Text("\(f.levelId)级").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
     /// Android User.has_concerned = 1 表示已关注
     private var isFollowing: Bool { data?.user.hasConcerned_p == 1 }
 

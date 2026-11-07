@@ -106,6 +106,8 @@ private struct RecommendFeedView: View {
                     }
                 }
                 .refreshable { await load(refresh: true) }
+                // tab 根页内容让位悬浮底栏
+                .safeAreaPadding(.bottom, 70)
             }
         }
         .task {

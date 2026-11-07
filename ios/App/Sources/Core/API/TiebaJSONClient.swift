@@ -120,7 +120,8 @@ final class TiebaJSONClient {
     func post(path: String,
               params: [String: String],
               channel: TiebaJSONChannel,
-              forceLogin: Bool = false) async throws -> Data {
+              forceLogin: Bool = false,
+              headers: [String: String] = [:]) async throws -> Data {
         let account = accountProvider()
         if forceLogin, account?.uid.isEmpty ?? true { throw TiebaAPIError.notLoggedIn }
 
@@ -149,6 +150,8 @@ final class TiebaJSONClient {
         if let uid = account?.uid, !uid.isEmpty {
             req.setValue(uid, forHTTPHeaderField: "client_user_token")
         }
+        // 端点级附加头（Android @Headers 注解等价物，如 threadstore 的 Cookie: ka=open）
+        for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         req.httpBody = Data(Self.formEncode(all).utf8)
 
         let (data, response) = try await session.data(for: req)

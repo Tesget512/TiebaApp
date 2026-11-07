@@ -451,3 +451,58 @@
   （material 圆角 26 + 阴影 + 左右留边），滚动内容从其后穿过。
 - 截图验收：吧页（全屏/蓝主题/顺序正确/关注蓝胶囊）、帖子页
   （悬浮回复栏+全帖赞 198+全屏沉浸）。
+
+## 2026-11-07 P19 真机第三轮反馈全量修复 ✅
+
+（用户反馈：回复界面退出即回滚底部 / 图片依旧"无图片" / 两列卡片过详 / 底栏要
+液态玻璃 / 点用户卡片一次弹三个页面 / 我的主页没做+我的回帖是空的 / 我的关注吧
+恒空 / 收藏恒空 / 页面仍被底栏挡住 / 安全模式不该显示回复 / 反复弹剪贴板粘贴横幅）
+
+- **回复 sheet 关闭即回滚底部**：原 onChange(showReply) 在 sheet 关闭时无条件
+  reload+scrollTo(bottom) → ReplySheet 新增 onReplied 回调（仅发送成功触发），
+  ThreadPage 以 replyPosted 标志门控刷新+滚动；取消关闭不再动列表。
+- **图片"无图片"真正根因**：贴吧 pb 图片 src 常为 `//imgsrc.baidu.com/...`
+  **协议相对地址**——Android Glide 原生支持、`URL(string:)` 直接失败 →
+  RemoteImage(url: nil) 灰块 + 点它打开空 url 列表 = 无图片占位页。
+  修复：normalizePicURL 补 `https:` 前缀（picURL/tiebaImageURL 两处）；
+  imageItem 仅 url != nil 才挂进查看器手势；openPhoto 空列表直接 return
+  （三重防御，「无图片」结构上不可达）。
+- **两列卡片紧凑化**：砍掉热帖预览行与 chevron，仅头像(48)+吧名+等级。
+- **液态玻璃**：floatingBarBackground(in:) 封装——iOS 26 `.glassEffect(
+  .regular.interactive())`，旧系统材质+阴影兜底；主底栏与帖子页回复栏统一。
+- **点用户卡片一次弹三个页面**：我的页统计行三个 NavigationLink 塞在同一
+  List 行内（SwiftUI 经典 bug：同行多链接同时激活）→ 改 Button +
+  navigationDestination(item:) 单跳；卡片本体点击进我的主页。
+- **我的关注吧恒空（端点错）**：误用 /c/u/feed/userlikeforum → 对齐
+  Android MixedTiebaApiImpl.userLikeForumFlow:1566：`/c/f/forum/like`
+  official 通道 page_no/page_size/uid（他人加 friend_uid/is_guest），
+  解析 forum_list."non-gconforum"（含连字符键名，自定义 CodingKeys）；
+  抽 static fetchLikeForums(uid:) 供主页 tab 复用。
+- **收藏恒空（模型字段全错）**：iOS ThreadStoreResponse 凭记忆写成
+  tid/fname/reply_num，Android 实际是 thread_id/forum_name/post_no/... →
+  按 ThreadStoreBean.kt 全表重写（FlexibleString，tid 超大整数安全）；
+  threadstore 补 Android @Headers 的 `Cookie: ka=open`
+  （TiebaJSONClient.post 新增 headers 参数）。
+- **我的回帖空（服务端缺陷+降级缺失）**：Android AnalysisRepository.kt:15
+  注释明确——官方 userpost is_thread=0 自 2026-09 起 post_list 恒空；
+  Android 用只读镜像 eztb 降级（UserReplyRemoteDataSource）→ 1:1 移植
+  UserReplyMirror（双域名、UA/Referer/Origin 头、末页[]/对象视为空、
+  第1页失败才报错），UserPostListPage 回帖 tab 官方优先+空时镜像，
+  行样式对齐 Android UserPostPage（回复内容+时间+原帖标题卡片）。
+- **我的主页充实**：UserProfilePage 加内容 tab（主题贴/回帖/关注的吧，
+  后两个仅自己——Android takeIf{isSelf} 对齐），回帖走镜像、关注吧走
+  fetchLikeForums；他人主页保留列表入口+关注/取关。
+- **底栏遮挡仍未修的根因**：TabView 层 safeAreaInset 不穿透到 tab 内容
+  → 移除该 inset，改为 4 个 tab 根页各自 `safeAreaPadding(.bottom, 70)`
+  （我的/进吧/通知/发现）。
+- **安全模式隐藏回复入口**：ThreadPage 底部回复栏 safeMode 时不渲染；
+  吧页 FAB 同步隐藏（ReplySheet 内部原有 safeMode 拦截保留）。
+- **剪贴板横幅**：直接读 UIPasteboard.general.string 每次回前台都触发系统
+  「允许粘贴」横幅 → 改 iOS16+ `detectValues(.probableWebURL)`
+  （系统侧识别、零横幅、零授权弹窗），拿到 URL 直接解析跳转；
+  同一链接只提示一次。
+- **通知页顶部大空隙**：safeAreaInset 叠加在大标题导航栏上 → inline 标题
+  + 分类 Picker 移到 toolbar principal 位。
+- **部署目标 16.0 → 17.0**（navigationDestination(item:)/safeAreaPadding
+  等 P19 关键 API 要求；用户设备 iOS 26）。
+- 验证：编译全过；sim 截图（进吧/通知页顶栏/帖子页悬浮玻璃回复栏+全屏）。

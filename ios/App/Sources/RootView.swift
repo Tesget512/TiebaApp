@@ -77,14 +77,10 @@ struct RootView: View {
                     .toolbar(.hidden, for: .tabBar)
             }
             .onPreferenceChange(BottomBarHiddenKey.self) { bottomBarHidden = $0 }
-            // 内容让位：列表最后一项不再被悬浮底栏遮挡（详情页隐藏时收起为 0）
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear
-                    .frame(height: bottomBarHidden ? 0 : 64)
-                    .allowsHitTesting(false)
-                    .animation(.easeInOut(duration: 0.15), value: bottomBarHidden)
-            }
-            // 自定义悬浮底栏（隐藏声明由 TabView 内页面通过 preference 汇总上来）
+            // 自定义悬浮底栏（隐藏声明由 TabView 内页面通过 preference 汇总上来）。
+            // 注意：悬浮底栏是 ZStack 覆盖；TabView 层的 safeAreaInset 无法可靠穿透到
+            // tab 内容（用户验收：列表最后一项仍被挡），内容让位由 4 个 tab 根页各自
+            // safeAreaPadding(.bottom, 70) 承担。
             CustomTabBar(selection: $selectedTab, isHidden: bottomBarHidden,
                          unreadCount: notifyBadge.count)
         }
