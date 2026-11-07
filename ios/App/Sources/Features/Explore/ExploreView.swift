@@ -320,7 +320,7 @@ struct RouteView: View {
         case .analysis(let uid, let name):
             PostAnalysisPage(uid: uid, name: name)
         case .photoView(let items, let index):
-            PhotoViewPage(initialItems: items, initialIndex: index)
+            SKPhotoBrowserHost(initialItems: items, initialIndex: index)
         case .search:
             SearchPage()
         case .forumSearch(let name):

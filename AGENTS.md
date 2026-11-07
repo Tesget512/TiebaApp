@@ -64,8 +64,16 @@
 - SwiftProtobuf **不用 SPM**（Xcode 26 下 local package 模块解析不可靠）：1.28.2 运行时
   源码编入静态库 target `SwiftProtobufCore`，设 `PRODUCT_MODULE_NAME=SwiftProtobuf`，
   proto 生成物用同版本 protoc-gen-swift 生成并原样 `import SwiftProtobuf`。
-- 部署目标 iOS 16.0（不用 iOS 17+ API，如 ContentUnavailableView）；真机 arm64 +
-  Intel 模拟器 x86_64。
+- 部署目标 iOS 17.0（P19 起从 16 升级：navigationDestination(item:)/safeAreaPadding/
+  contentMargins 需要；iOS 26 专属 API 一律 `#available(iOS 26)` 分支+旧系统兜底）；
+  真机 arm64 + Intel 模拟器 x86_64。
+- **成熟第三方库（用户约束：能用成熟项目就不自己写）**：`ios/ThirdParty/` 浅克隆
+  官方仓库源码直接编入主 target（同 SwiftProtobufRuntime 模式，离线可构建）：
+  `Kingfisher`（图片加载缓存，RemoteImage 内核已换 KFImage、对外 API 不变），
+  `SKPhotoBrowser`（图片查看器，SKPhotoBrowserHost 壳；进入时先跑本项目 picpage
+  协议流拉全帖原图再交给浏览器，失败回退传入列表；GIF 动图解码依赖 ObjC 桥接，
+  已最小补丁改静态解码）。图标资源 `App/Resources/SKPhotoBrowser.bundle`
+  以 folder reference 编入。源码增删后重跑 gen_project.py 并清 DerivedData。
 - **adhoc ipa 流程（唯一交付构建方式，以后也只这么构建）**：Xcode 26 SDK 禁止直接
   adhoc 构建（"Ad Hoc code signing is not allowed"），须 `CODE_SIGNING_ALLOWED=NO`
   构建 + `codesign --sign -` 手动签名。一键脚本 `ios/scripts/build_ipa.sh` →

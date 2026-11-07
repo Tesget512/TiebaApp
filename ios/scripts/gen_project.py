@@ -142,6 +142,21 @@ def main():
         for f in sorted(files):
             if f.endswith(".swift"):
                 test_sources.append(os.path.relpath(os.path.join(dirpath, f), ROOT))
+    # ThirdParty 成熟库源码（浅克隆官方仓库，IOS_PLAN §ThirdParty 模式）：
+    # Kingfisher（图片加载缓存）/ SKPhotoBrowser（图片查看器）直接编入主 target；
+    # 排除 .git / 文档样例代码（docc 内示例不可独立编译）
+    for vendored in ("Kingfisher", "SKPhotoBrowser"):
+        vroot = os.path.join(ROOT, "ThirdParty", vendored)
+        for dirpath, _dirs, files in os.walk(vroot):
+            norm = dirpath.replace(os.sep, "/")
+            if "/.git" in norm or "/Documentation.docc" in norm:
+                continue
+            for f in sorted(files):
+                if f.endswith(".swift"):
+                    rel = os.path.relpath(os.path.join(dirpath, f), ROOT)
+                    if "/Documentation.docc/" in rel:
+                        continue
+                    app_sources.append(rel)
     print(f"App 源码 {len(app_sources)} 个，资源 {len(resources)} 个，proto {len(protos)} 个，测试 {len(test_sources)} 个")
 
     buildfiles, filerefs = [], []
@@ -173,6 +188,13 @@ def main():
             rel = rel  # 目录引用保持路径
         bid, fid = add_file(rel, IDS["res_group"], comment, ftype=ftype, in_sources=False)
         res_children.append((fid, comment))
+        res_buildfiles.append(bid)
+    # SKPhotoBrowser 图标 bundle（folder reference：整体拷入包内，子路径不展开）
+    bundle_rel = os.path.join("App", "Resources", "SKPhotoBrowser.bundle")
+    if os.path.isdir(os.path.join(ROOT, bundle_rel)):
+        bid, fid = add_file(bundle_rel, IDS["res_group"], "SKPhotoBrowser.bundle",
+                            ftype="folder", in_sources=False)
+        res_children.append((fid, "SKPhotoBrowser.bundle"))
         res_buildfiles.append(bid)
     for rel in protos:
         bid, fid = add_file(os.path.join("Generated/Protos", rel), IDS["protos_group"], rel, in_sources=True)

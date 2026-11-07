@@ -294,6 +294,25 @@ struct ThreadPage: View {
         content
             .navigationTitle(title.isEmpty ? (forumName.isEmpty ? "帖子" : forumName) : title)
             .navigationBarTitleDisplayMode(.inline)
+            // 导航栏中央吧名：点击进对应贴吧（Android 顶栏吧名可点对齐）
+            .toolbar {
+                if !forumName.isEmpty {
+                    ToolbarItem(placement: .principal) {
+                        NavigationLink {
+                            ForumPage(forumName: forumName)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(forumName)
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2.weight(.bold))
+                            }
+                            .foregroundStyle(.primary)
+                        }
+                    }
+                }
+            }
             .bottomBarHidden()
             // 底部回复栏（对齐 Android ThreadPage BottomBar 2021-2060：回复输入框 + 全帖点赞）；
             // 悬浮胶囊 + Liquid Glass（与主底栏一致）；安全模式（只读）不显示（用户验收）
@@ -395,12 +414,12 @@ struct ThreadPage: View {
                                 title: "\(sel.floor)楼的回复")
             }
             .fullScreenCover(isPresented: $showPhoto) {
-                PhotoViewPage(initialItems: photoItems, initialIndex: photoIndex,
-                              context: PicPageContext(forumId: resolvedForumId,
-                                                      forumName: forumName,
-                                                      threadId: threadID,
-                                                      seeLz: seeLz,
-                                                      objType: "pb"))
+                SKPhotoBrowserHost(initialItems: photoItems, initialIndex: photoIndex,
+                                   context: PicPageContext(forumId: resolvedForumId,
+                                                           forumName: forumName,
+                                                           threadId: threadID,
+                                                           seeLz: seeLz,
+                                                           objType: "pb"))
             }
             .sheet(isPresented: $showReport) {
                 if let reportURL {
@@ -996,12 +1015,12 @@ struct FloorDetailPage: View {
                     }
                 }
                 .fullScreenCover(isPresented: $showPhoto) {
-                    PhotoViewPage(initialItems: photoItems, initialIndex: photoIndex,
-                                  context: PicPageContext(forumId: forumId,
-                                                          forumName: forumName,
-                                                          threadId: threadId,
-                                                          seeLz: false,
-                                                          objType: "pb"))
+                    SKPhotoBrowserHost(initialItems: photoItems, initialIndex: photoIndex,
+                                       context: PicPageContext(forumId: forumId,
+                                                               forumName: forumName,
+                                                               threadId: threadId,
+                                                               seeLz: false,
+                                                               objType: "pb"))
                 }
                 .sheet(item: $replyTarget) { target in
                     ReplySheet(threadId: threadId, forumId: forumId,

@@ -15,64 +15,55 @@ final class RemoteImageCache {
     }
 }
 
-/// 网络图片：内存缓存 + URLCache 二级缓存 + 失败占位（对应 Android NetworkImage）
-/// 不用 AsyncImage：它无内存缓存，列表滚动会反复重下并闪烁
-/// 失败态可见且可点击重试（点按重新发起加载）
+/// 网络图片：Kingfisher（成熟库，ios/ThirdParty/Kingfisher 浅克隆编入主 target）。
+/// 保留原 API（url/contentMode），全部调用点零改动；
+/// 失败态可见且可点击重试；自动重试一次（DelayRetryStrategy）。
 struct RemoteImage: View {
     let url: URL?
-    var contentMode: ContentMode = .fill
+    // Kingfisher 同模块自带 ContentMode（none/aspectFit/aspectFill）会遮蔽 SwiftUI 的，
+    // 显式限定 SwiftUI.ContentMode 保持调用点 .fill/.fit 语义不变
+    var contentMode: SwiftUI.ContentMode = .fill
 
-    @State private var image: UIImage?
-    @State private var failed = false
-    /// 失败重试计数（驱动 task 重跑）
+    /// 手动重试计数（点按后强制重新发起）
     @State private var attempt = 0
 
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: contentMode)
-                } else if failed {
-                    VStack(spacing: 4) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 18, weight: .medium))
-                        Text("点击重试").font(.caption2)
+            if let url {
+                KFImage(url)
+                    .placeholder {
+                        Color(.systemGray5)
                     }
-                    .foregroundStyle(.secondary)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        failed = false
-                        attempt += 1
+                    .onFailure { _ in failed = true }
+                    .retry(DelayRetryStrategy(maxRetryCount: 1, retryInterval: .seconds(1)))
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+                    .id(attempt)
+                    .overlay {
+                        if failed {
+                            VStack(spacing: 4) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 18, weight: .medium))
+                                Text("点击重试").font(.caption2)
+                            }
+                            .foregroundStyle(.secondary)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                failed = false
+                                attempt += 1
+                            }
+                        }
                     }
-                } else {
-                    Color(.systemGray5)
-                }
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .clipped()
-        }
-        .task(id: "\(url?.absoluteString ?? "")#\(attempt)") {
-            guard let url else { failed = true; return }
-            if let cached = RemoteImageCache.shared.image(for: url) {
-                image = cached
-                return
-            }
-            do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                if let img = UIImage(data: data) {
-                    RemoteImageCache.shared.store(img, for: url)
-                    image = img
-                    failed = false
-                } else {
-                    failed = true
-                }
-            } catch {
-                failed = true
+            } else {
+                Color(.systemGray5)
+                    .frame(width: geo.size.width, height: geo.size.height)
             }
         }
     }
+
+    @State private var failed = false
 }
 
 /// 圆形头像
@@ -128,12 +119,15 @@ struct FeedCard: View {
                 }
                 HStack(spacing: 6) {
                     if !thread.forumName.isEmpty {
-                        Text(thread.forumName)
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(Color.blue.opacity(0.12), in: Capsule())
-                            .foregroundStyle(.blue)
+                        NavigationLink(value: AppRoute.forum(thread.forumName)) {
+                            Text(thread.forumName)
+                                .font(.caption)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(Color.blue.opacity(0.12), in: Capsule())
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.plain)
                     }
                     Text(thread.relativeTime)
                         .font(.caption)

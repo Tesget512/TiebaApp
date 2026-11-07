@@ -542,3 +542,32 @@
   NavigationLink 同时激活的 List 行为坑彻底规避）；UserProfilePage
   失败态补重试按钮。
 - 验证：编译全过；sim 截图（吧页首图封面色彩正常/沉浸式查看器）。
+
+## 2026-11-07 P21 成熟库替换自研 + 吧名跳转 ✅
+
+（用户约束重申：能用成熟项目就不自己写——IOS_PLAN §ThirdParty 本就规定
+「浅克隆官方仓库」模式，此前图片查看器/图片加载自己手写是违背约束）
+
+- **SKPhotoBrowser 接入（图片查看器）**：`ios/ThirdParty/SKPhotoBrowser`
+  浅克隆官方 master（24 swift + LICENSE），编入主 target。分页/双击缩放/
+  保存/分享/长按菜单/滑动关闭全交给成熟库。数据层仍走本项目 picpage 协议流：
+  SKPhotoBrowserHost 进入时先 `/c/f/pb/picpage` 拉全帖原图（锚点 picId 定位，
+  失败回退传入列表），再交 SKPhotoBrowser 呈现；原自研 PhotoViewPage/
+  ZoomableImage/PhotoSaver 删除。库源两处适配：ObjC GIF 桥接未引入
+  （iOS 13+ 原生 API 与 ObjC 类方法签名冲突，最小补丁改 UIImage(data:) 静态
+  解码）；图标 SKPhotoBrowser.bundle 以 folder reference 编入 App 资源。
+- **Kingfisher 接入（图片加载）**：`ios/ThirdParty/Kingfisher` 浅克隆官方
+  master（99 swift），RemoteImage 内核换 KFImage（placeholder/onFailure/
+  自动重试 1 次/手动点击重试保留），对外 API（url/contentMode）不变——
+  全部调用点零改动；NSCache 手写层（RemoteImageCache）退场。
+  适配：Kingfisher 自带 ContentMode 同模块遮蔽 SwiftUI 的 → 显式
+  SwiftUI.ContentMode 限定；docc 内示例 swift 文件排除编译。
+- **gen_project.py**：ThirdParty/Kingfisher、ThirdParty/SKPhotoBrowser 的
+  .swift（排除 .git/Documentation.docc）编入主 target；SKPhotoBrowser.bundle
+  folder reference 资源。
+- **吧名跳转**：FeedCard 头部吧名 chip 可点 → 对应吧页（发现/吧页/搜索等
+  任何栈）；帖子页导航栏中央吧名可点 → 对应吧页（view-based NavigationLink，
+  深链外路由等未注册 AppRoute 的栈也有效）。
+- AGENTS.md 更新：部署目标 17.0 事实 + 成熟第三方库约定固化。
+- 验证：编译全过（140 源文件）；sim 截图（SKPhotoBrowser 呈现/吧页
+  KFImage 渲染色彩正常/首图封面）。
