@@ -66,9 +66,13 @@
   proto 生成物用同版本 protoc-gen-swift 生成并原样 `import SwiftProtobuf`。
 - 部署目标 iOS 16.0（不用 iOS 17+ API，如 ContentUnavailableView）；真机 arm64 +
   Intel 模拟器 x86_64。
-- **adhoc ipa 流程**：Xcode 26 SDK 禁止直接 adhoc 构建（"Ad Hoc code signing is not
-  allowed"），须 `CODE_SIGNING_ALLOWED=NO` 构建 + `codesign --sign -` 手动签名。
-  一键脚本 `ios/scripts/build_ipa.sh` → `build/TiebaLite-adhoc.ipa`。
+- **adhoc ipa 流程（唯一交付构建方式，以后也只这么构建）**：Xcode 26 SDK 禁止直接
+  adhoc 构建（"Ad Hoc code signing is not allowed"），须 `CODE_SIGNING_ALLOWED=NO`
+  构建 + `codesign --sign -` 手动签名。一键脚本 `ios/scripts/build_ipa.sh` →
+  `build/TiebaLite-adhoc.ipa`。脚本自带退出码驱动验收：`Signature=adhoc`、
+  `TeamIdentifier=not set`、无 `embedded.mobileprovision`、无 Apple 证书链、
+  `codesign --verify --strict` 通过、包内主二进制复核 adhoc；嵌套 framework/dylib
+  先签（自内向外）。不要用开发者证书/分发签名打包。
 - proto 重新生成：`ios/scripts/generate_protos.sh`（protoc-gen-swift 1.28.2 +
   dedup 同名文件 + 删除多余 import），产物不手改。
 - **SwiftProtobuf 生成名冲突**：proto 字段 `has_more`/`has_agree`/`has_plist`/
@@ -80,6 +84,11 @@
 - **Android 端功能面基准**：子代理全量清单 + 亲核结论见
   `ios/docs/PROGRESS.md` P8 节「遗留」列表——这是 iOS 端尚未对齐的 Android
   深度功能清单（发帖/管理操作/主题引擎/一键签到服务/发言分析等）。
+
+- **验收等待规范（用户要求）**：等待一律优先用「可检查退出码的命令」
+  （如 `xcrun simctl bootstatus <udid> -b` 等启动完成、`simctl launch --console-pty`
+  或轮询 `launchctl list` 判 pid），**不要用固定 sleep 当验收手段**；sleep 只允许
+  作为重试循环里的小间隔兜底（带上限与超时判定）。
 
 ## 阶段进度
 
