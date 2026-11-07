@@ -15,13 +15,6 @@ struct ExploreView: View {
     var body: some View {
         NavigationStack(path: $path) {
             VStack(spacing: 0) {
-                Picker("频道", selection: $subTab) {
-                    ForEach(SubTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-
                 switch subTab {
                 case .recommend: RecommendFeedView(path: $path)
                 case .concern: ConcernFeedView(path: $path)
@@ -29,7 +22,16 @@ struct ExploreView: View {
                 }
             }
             .navigationTitle("发现")
+            .navigationBarTitleDisplayMode(.inline)
+            // 频道选择器入导航栏 principal 位（原内嵌固定条滚动时形成不透明遮挡带）
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Picker("频道", selection: $subTab) {
+                        ForEach(SubTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 260)
+                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
                         path.append(AppRoute.search)
@@ -107,7 +109,7 @@ private struct RecommendFeedView: View {
                 }
                 .refreshable { await load(refresh: true) }
                 // tab 根页内容让位悬浮底栏
-                .safeAreaPadding(.bottom, 70)
+                .tabRootScrollBottomInset()
             }
         }
         .task {
@@ -317,8 +319,8 @@ struct RouteView: View {
             ForumDetailPage(forumId: id, forumName: name)
         case .analysis(let uid, let name):
             PostAnalysisPage(uid: uid, name: name)
-        case .photoView(let urls, let index):
-            PhotoViewPage(urls: urls, initialIndex: index)
+        case .photoView(let items, let index):
+            PhotoViewPage(initialItems: items, initialIndex: index)
         case .search:
             SearchPage()
         case .forumSearch(let name):

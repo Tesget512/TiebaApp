@@ -1,159 +1,152 @@
 import SwiftUI
 
 /// 我的页面（对应 Android `UserPage`）：登录态、头像、账号信息、登出
+/// 头部卡片在 List 之外（List 同一行放多个 NavigationLink 会同时激活——
+/// 之前"点卡片一次弹出回复/粉丝/关注"即此 bug；navigationDestination(item:)
+/// 在 iOS 26 上还会推出空白页，一并移除）
 struct ProfileView: View {
     @EnvironmentObject var appState: AppState
     @State private var showLogin = false
     @State private var profile: Tieba_Profile_ProfileResponseData?
     @State private var isLoading = false
-    /// 统计/卡片跳转目标（同一 List 行内放多个 NavigationLink 会一次全触发，
-    /// 改为 Button + navigationDestination(item:) 单跳）
-    @State private var statRoute: StatRoute?
-
-    enum StatRoute: Hashable {
-        case profile, following, followers, myThreads, myReplies
-    }
 
     var body: some View {
         NavigationStack {
-            List {
+            VStack(spacing: 0) {
                 if let account = appState.account {
-                    Section {
-                        HStack(spacing: 12) {
-                            AvatarView(url: account.avatarURL, size: 56)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(account.name).font(.headline)
-                                if let user = profile?.user {
-                                    HStack(spacing: 14) {
-                                        // 统计可点（对齐 Android UserPage：跳对应列表）
-                                        Button { statRoute = .following } label: {
-                                            statItem("关注", user.concernNum)
-                                        }
-                                        .buttonStyle(.plain)
-                                        Button { statRoute = .followers } label: {
-                                            statItem("粉丝", user.fansNum)
-                                        }
-                                        .buttonStyle(.plain)
-                                        Button { statRoute = .myThreads } label: {
-                                            statItem("发帖", user.postNum)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                } else {
-                                    Text("UID: \(account.uid)")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .padding(.vertical, 4)
-                        .contentShape(Rectangle())
-                        .onTapGesture { statRoute = .profile } // 点卡片进我的主页
-                    }
-
-                    Section {
+                    // 头部卡片（List 外：NavigationLink 在普通布局中行为可靠）
+                    VStack(spacing: 12) {
                         NavigationLink {
                             UserProfilePage(uid: Int64(account.uid) ?? 0)
                         } label: {
-                            Label("我的主页", systemImage: "person.text.rectangle")
+                            HStack(spacing: 12) {
+                                AvatarView(url: account.avatarURL, size: 56)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(account.name).font(.headline)
+                                    Text("UID: \(account.uid) · 查看主页")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
-                        NavigationLink {
-                            UserPostListPage(uid: Int64(account.uid) ?? 0, name: account.name,
-                                             isThread: true)
-                        } label: {
-                            Label("我的发帖", systemImage: "doc.text")
-                        }
-                        NavigationLink {
-                            UserPostListPage(uid: Int64(account.uid) ?? 0, name: account.name,
-                                             isThread: false)
-                        } label: {
-                            Label("我的回帖", systemImage: "bubble.right")
-                        }
-                        NavigationLink {
-                            MyForumsView()
-                        } label: {
-                            Label("我的关注吧", systemImage: "square.grid.2x2")
-                        }
-                        NavigationLink {
-                            FollowListView(isFollow: true, uid: Int64(account.uid) ?? 0)
-                        } label: {
-                            Label("关注列表", systemImage: "person.2")
-                        }
-                        NavigationLink {
-                            FollowListView(isFollow: false, uid: Int64(account.uid) ?? 0)
-                        } label: {
-                            Label("粉丝列表", systemImage: "person.2.wave.2")
-                        }
-                        NavigationLink {
-                            EditProfilePage()
-                        } label: {
-                            Label("修改资料", systemImage: "pencil.line")
-                        }
-                        NavigationLink {
-                            ThreadStorePage()
-                        } label: {
-                            Label("我的收藏", systemImage: "star")
-                        }
-                        NavigationLink {
-                            HistoryPageView()
-                        } label: {
-                            Label("浏览历史", systemImage: "clock.arrow.circlepath")
-                        }
-                    }
+                        .buttonStyle(.plain)
 
-                    Section {
-                        NavigationLink {
-                            SettingsView()
-                        } label: {
-                            Label("设置", systemImage: "gearshape")
-                        }
-                        // 服务中心（Android UserPage 菜单：WebView）
-                        NavigationLink {
-                            WebViewPage(url: URL(string: "https://tieba.baidu.com/mo/q/service/pages/index")!)
-                        } label: {
-                            Label("服务中心", systemImage: "headphones")
-                        }
-                        NavigationLink {
-                            AboutView()
-                        } label: {
-                            Label("关于", systemImage: "info.circle")
+                        if let user = profile?.user {
+                            HStack(spacing: 0) {
+                                // 统计可点（对齐 Android UserPage：跳对应列表）
+                                NavigationLink {
+                                    FollowListView(isFollow: true, uid: Int64(account.uid) ?? 0)
+                                } label: { statItem("关注", user.concernNum) }
+                                    .buttonStyle(.plain)
+                                Divider().frame(height: 24)
+                                NavigationLink {
+                                    FollowListView(isFollow: false, uid: Int64(account.uid) ?? 0)
+                                } label: { statItem("粉丝", user.fansNum) }
+                                    .buttonStyle(.plain)
+                                Divider().frame(height: 24)
+                                NavigationLink {
+                                    UserPostListPage(uid: Int64(account.uid) ?? 0,
+                                                     name: account.name, isThread: true)
+                                } label: { statItem("发帖", user.postNum) }
+                                    .buttonStyle(.plain)
+                            }
+                            .frame(maxWidth: .infinity)
                         }
                     }
+                    .padding(16)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    List {
+                        Section {
+                            NavigationLink {
+                                UserPostListPage(uid: Int64(account.uid) ?? 0, name: account.name,
+                                                 isThread: true)
+                            } label: {
+                                Label("我的发帖", systemImage: "doc.text")
+                            }
+                            NavigationLink {
+                                UserPostListPage(uid: Int64(account.uid) ?? 0, name: account.name,
+                                                 isThread: false)
+                            } label: {
+                                Label("我的回帖", systemImage: "bubble.right")
+                            }
+                            NavigationLink {
+                                MyForumsView()
+                            } label: {
+                                Label("我的关注吧", systemImage: "square.grid.2x2")
+                            }
+                            NavigationLink {
+                                FollowListView(isFollow: true, uid: Int64(account.uid) ?? 0)
+                            } label: {
+                                Label("关注列表", systemImage: "person.2")
+                            }
+                            NavigationLink {
+                                FollowListView(isFollow: false, uid: Int64(account.uid) ?? 0)
+                            } label: {
+                                Label("粉丝列表", systemImage: "person.2.wave.2")
+                            }
+                            NavigationLink {
+                                EditProfilePage()
+                            } label: {
+                                Label("修改资料", systemImage: "pencil.line")
+                            }
+                            NavigationLink {
+                                ThreadStorePage()
+                            } label: {
+                                Label("我的收藏", systemImage: "star")
+                            }
+                            NavigationLink {
+                                HistoryPageView()
+                            } label: {
+                                Label("浏览历史", systemImage: "clock.arrow.circlepath")
+                            }
+                        }
 
-                    Section {
-                        Button("退出登录", role: .destructive) { appState.logout() }
+                        Section {
+                            NavigationLink {
+                                SettingsView()
+                            } label: {
+                                Label("设置", systemImage: "gearshape")
+                            }
+                            // 服务中心（Android UserPage 菜单：WebView）
+                            NavigationLink {
+                                WebViewPage(url: URL(string: "https://tieba.baidu.com/mo/q/service/pages/index")!)
+                            } label: {
+                                Label("服务中心", systemImage: "headphones")
+                            }
+                            NavigationLink {
+                                AboutView()
+                            } label: {
+                                Label("关于", systemImage: "info.circle")
+                            }
+                        }
+
+                        Section {
+                            Button("退出登录", role: .destructive) { appState.logout() }
+                        }
                     }
+                    .listStyle(.insetGrouped)
+                    .tabRootScrollBottomInset()
                 } else {
-                    Section {
+                    VStack(spacing: 12) {
                         Button {
                             showLogin = true
                         } label: {
                             Label("登录百度账号", systemImage: "person.crop.circle.badge.plus")
+                                .font(.headline)
                         }
-                    } footer: {
                         Text("通过百度通行证登录，客户端仅在本机 Keychain 保存 BDUSS/STOKEN 用于调用贴吧接口。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            // 底部内容让位悬浮底栏（TabView 层的 safeAreaInset 不穿透到 tab 内容，
-            // 必须每个 tab 根页自行让位，否则最后一项被挡）
-            .safeAreaPadding(.bottom, 70)
             .navigationTitle("我的")
-            .navigationDestination(item: $statRoute) { route in
-                switch route {
-                case .profile:
-                    UserProfilePage(uid: Int64(appState.account?.uid ?? "") ?? 0)
-                case .following:
-                    FollowListView(isFollow: true, uid: Int64(appState.account?.uid ?? "") ?? 0)
-                case .followers:
-                    FollowListView(isFollow: false, uid: Int64(appState.account?.uid ?? "") ?? 0)
-                case .myThreads:
-                    UserPostListPage(uid: Int64(appState.account?.uid ?? "") ?? 0,
-                                     name: appState.account?.name ?? "", isThread: true)
-                case .myReplies:
-                    UserPostListPage(uid: Int64(appState.account?.uid ?? "") ?? 0,
-                                     name: appState.account?.name ?? "", isThread: false)
-                }
-            }
             .sheet(isPresented: $showLogin) { LoginView() }
             .task(id: appState.account?.uid) { await loadProfile() }
         }
@@ -222,6 +215,7 @@ struct MyForumsView: View {
             }
         }
         .navigationTitle("我的关注吧")
+        .bottomBarHidden()
         .task { if forums.isEmpty { await load() } }
     }
 

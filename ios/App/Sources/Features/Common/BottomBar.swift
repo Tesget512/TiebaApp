@@ -26,17 +26,33 @@ extension View {
         preference(key: BottomBarHiddenKey.self, value: hidden)
     }
 
-    /// 悬浮条底衬：iOS 26 用系统 Liquid Glass（glassEffect），旧系统材质+阴影兜底
+    /// 悬浮条底衬：iOS 26 按苹果规范用 Liquid Glass（GlassEffectContainer 包裹 +
+    /// glassEffect），旧系统材质+阴影兜底
     @ViewBuilder
     func floatingBarBackground<S: InsettableShape>(in shape: S) -> some View {
         if #available(iOS 26.0, *) {
-            self.glassEffect(.regular.interactive(), in: shape)
+            GlassEffectContainer(spacing: 0) {
+                self.glassEffect(.regular.interactive(), in: shape)
+            }
         } else {
             self.background(.regularMaterial, in: shape)
                 .overlay {
                     shape.strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
                 }
                 .shadow(color: .black.opacity(0.16), radius: 10, y: 3)
+        }
+    }
+
+    /// tab 根页滚动设置：内容可滚过悬浮底栏（沉浸），最后一项仍可完整滚出；
+    /// iOS 26 加底部滚动边缘淡出（避免玻璃下透出原图——苹果 scroll edge effect 规范）
+    @ViewBuilder
+    func tabRootScrollBottomInset() -> some View {
+        if #available(iOS 26.0, *) {
+            self
+                .contentMargins(.bottom, 76, for: .scrollContent)
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
+        } else {
+            self.contentMargins(.bottom, 76, for: .scrollContent)
         }
     }
 }

@@ -506,3 +506,39 @@
 - **部署目标 16.0 → 17.0**（navigationDestination(item:)/safeAreaPadding
   等 P19 关键 API 要求；用户设备 iOS 26）。
 - 验证：编译全过；sim 截图（进吧/通知页顶栏/帖子页悬浮玻璃回复栏+全屏）。
+
+## 2026-11-07 P20 真机第四轮反馈修复 ✅
+
+（用户反馈：设置页等仍被底栏挡 / 液态玻璃要按苹果规范 / 我的页面空白 /
+下拉后顶部底部不沉浸硬挡空间 / 图片查看器仍旧打不开且嫌弃"抽屉式"呈现 /
+帖子塞多图要求只显首图封面 / 缩略图渲染发白）
+
+- **缩略图发白真因**：`brightness(0.72)` 在 SwiftUI 是 **+72% 亮度**（0=不变、
+  正值加亮），不是"压暗到 72%"——夜间压暗反而把图打白。改 Android 同款
+  黑色叠加 `.overlay(Color.black.opacity(dim ? 0.35 : 0))`。
+- **只显首图封面**：FeedCard coverImage 由 prefix(3) 小图阵列改为单张
+  全宽 176pt 封面（fill 裁切圆角 10）。
+- **查看器弃用"抽屉页"**：去掉 NavigationStack+toolbar 壳，改全屏纯黑
+  沉浸覆盖层：自绘悬浮控件（关闭 X/页码胶囊/下载/分享，半透圆底），
+  点按图片切换控件显隐；协议流对齐 Android PhotoViewViewModel——
+  进入时调 `/c/f/pb/picpage`（MINI 通道，prev/next/not_see_lz 参数对齐）
+  拉全帖图集 img.original.original_src，失败回退传入的本地图列表
+  （Android Init.Failure 同款降级）；picId 从 url 文件名提取
+  （ImageUtil.getPicId 对齐）。AppRoute.photoView 改携带 [PicViewItem]；
+  FloorDetailPage 补 forumName 参数供 picpage 上下文。
+- **设置页等仍被挡（系统性根因）**：逐页补丁漏了 SettingsView/关于/
+  我的关注吧/修改资料/网页页——"push 页自动隐藏"依赖逐页声明不可靠。
+  本轮全部补齐 `.bottomBarHidden()`（9 处）。
+- **沉浸滚动**：tab 根页 `safeAreaPadding` 改 `contentMargins(.bottom, 76,
+  for: .scrollContent)`（内容可滚过底栏、最后一项仍可完整滚出）；
+  iOS 26 加 `.scrollEdgeEffectStyle(.soft, for: .bottom)`（苹果规范：
+  玻璃条下内容边缘淡出，不再透出原图）。
+- **液态玻璃规范**：floatingBarBackground 改 `GlassEffectContainer` 包裹
+  `glassEffect(.regular.interactive())`（苹果 WWDC 规范用法）。
+- **发现页顶部遮挡带**：频道 Picker 从内嵌固定条移入导航栏 principal 位
+  （与通知页一致），内容区直达状态栏。
+- **我的页面空白**：ProfileView 移除 navigationDestination(item:)
+  （iOS 26 下推出空白页），头部卡片移出 List（同 row 多
+  NavigationLink 同时激活的 List 行为坑彻底规避）；UserProfilePage
+  失败态补重试按钮。
+- 验证：编译全过；sim 截图（吧页首图封面色彩正常/沉浸式查看器）。

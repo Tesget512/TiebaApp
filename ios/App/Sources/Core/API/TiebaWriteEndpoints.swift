@@ -597,3 +597,64 @@ struct ThreadStoreResponse: Decodable {
     let error_msg: String?
     let store_thread: [StoreInfo]?
 }
+
+// MARK: - 帖子图集（对齐 Android PhotoViewViewModel：picpage 协议流）
+
+/// `/c/f/pb/picpage` 响应（字段名对齐 Android PicPageBean.kt）
+struct PicPageResponse: Decodable {
+    struct Pic: Decodable {
+        struct Img: Decodable {
+            struct Info: Decodable {
+                let id: String?
+                let width: FlexibleString?
+                let height: FlexibleString?
+                let size: FlexibleString?
+                let format: String?
+                let waterurl: String?
+                let big_cdn_src: String?
+                let url: String?
+                let original_src: String?
+            }
+            let original: Info?
+            let medium: Info?
+            let screen: Info?
+        }
+        let overall_index: FlexibleString?
+        let show_original_btn: FlexibleString?
+        let img: Img?
+        let post_id: FlexibleString?
+    }
+    struct Forum: Decodable {
+        let name: String?
+        let id: String?
+    }
+    let error_code: FlexibleString?
+    let forum: Forum?
+    let pic_amount: FlexibleString?
+    let pic_list: [Pic]?
+}
+
+extension TiebaWriteEndpoints {
+    /// 帖子图集页（MINI 通道 `/c/f/pb/picpage`，Android MINI_TIEBA_API.picPageFlow 对齐：
+    /// prev=true 时 next=0/prev=10，否则 next=10/prev=0；not_see_lz 由 seeLz 取反）
+    static func picPage(forumId: Int64, forumName: String, threadId: Int64,
+                        picId: String, picIndex: Int, objType: String,
+                        seeLz: Bool, prev: Bool) async throws -> PicPageResponse {
+        let params: [String: String] = [
+            "forum_id": "\(forumId)",
+            "kw": forumName,
+            "tid": "\(threadId)",
+            "pic_id": picId,
+            "pic_index": "\(picIndex)",
+            "obj_type": objType,
+            "page_name": "PB",
+            "next": prev ? "0" : "10",
+            "prev": prev ? "10" : "0",
+            "q_type": "2",
+            "not_see_lz": seeLz ? "0" : "1",
+        ]
+        let data = try await TiebaJSONClient.shared.post(path: "/c/f/pb/picpage",
+                                                        params: params, channel: .mini)
+        return try TiebaJSONClient.decode(PicPageResponse.self, from: data)
+    }
+}

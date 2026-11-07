@@ -310,48 +310,119 @@ struct FlowLayoutView: View {
     }
 }
 
-// MARK: - 图片查看器（对应 Android PhotoViewActivity：横向翻页 + 下载/分享）
+// MARK: - 图片查看器（对齐 Android PhotoViewActivity：picpage 协议流 + 沉浸式覆盖层）
+//
+// 与 Android 一致：点击图片只带 picId/初始 url 进来，真正的原图列表由
+// `/c/f/pb/picpage` 拉取（img.original.original_src），失败时回退到传入的
+// 本地列表（Android Init.Failure 同款降级）。
+// 呈现：全屏纯黑覆盖层 + 自绘悬浮按钮（非导航栏"抽屉页"），点按切换控件显隐。
+
+/// 查看器单图条目
+struct PicViewItem: Identifiable, Hashable {
+    /// picId（从 url 文件名提取，Android ImageUtil.getPicId 对齐）
+    let id: String
+    /// 展示用地址（优先 bigCdnSrc）
+    let url: String
+    /// 原图地址（保存/分享用）
+    let originUrl: String
+}
+
+/// picpage 上下文（提供后进入页面时拉取全帖图集）
+struct PicPageContext: Hashable {
+    var forumId: Int64
+    var forumName: String
+    var threadId: Int64
+    var seeLz: Bool
+    var objType: String
+}
+
+/// Android ImageUtil.getPicId 对齐：取 url 文件名去扩展名
+func tiebaPicId(from urlString: String) -> String {
+    guard let url = URL(string: urlString), !url.lastPathComponent.isEmpty else {
+        return urlString
+    }
+    return (url.lastPathComponent as NSString).deletingPathExtension.isEmpty
+        ? url.lastPathComponent
+        : (url.lastPathComponent as NSString).deletingPathExtension
+}
 
 struct PhotoViewPage: View {
-    let urls: [String]
+    let initialItems: [PicViewItem]
     let initialIndex: Int
+    var context: PicPageContext? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @State private var items: [PicViewItem] = []
     @State private var currentIndex = 0
+    @State private var chromeVisible = true
     @State private var toastText: String?
 
     var body: some View {
-        Group {
-            if urls.isEmpty {
-                UnavailableView(title: "无图片", systemImage: "photo")
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if items.isEmpty {
+                VStack(spacing: 10) {
+                    ProgressView().tint(.white)
+                    Text("图片加载中…").font(.footnote).foregroundStyle(.white.opacity(0.7))
+                }
             } else {
                 TabView(selection: $currentIndex) {
-                    ForEach(Array(urls.enumerated()), id: \.offset) { idx, urlStr in
-                        ZoomableImage(urlString: urlStr)
+                    ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                        ZoomableImage(urlString: item.url)
                             .tag(idx)
                     }
                 }
-                .tabViewStyle(.page(indexDisplayMode: .always))
-                .background(.black)
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if !urls.isEmpty, currentIndex < urls.count {
+
+            // 顶部悬浮控件（自绘，非导航栏——摆脱"抽屉页"感；点按图片切换显隐）
+            if chromeVisible {
+                HStack {
                     Button {
-                        saveCurrent()
+                        dismiss()
                     } label: {
-                        Image(systemName: "square.and.arrow.down")
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(.white.opacity(0.14), in: Circle())
                     }
-                    if let u = URL(string: urls[currentIndex]) {
-                        ShareLink(item: u) {
-                            Image(systemName: "square.and.arrow.up")
+                    Spacer()
+                    if !items.isEmpty, currentIndex < items.count {
+                        Text("\(currentIndex + 1) / \(items.count)")
+                            .font(.footnote.monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.9))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(.white.opacity(0.14), in: Capsule())
+                        Button {
+                            saveCurrent()
+                        } label: {
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                                .frame(width: 34, height: 34)
+                                .background(.white.opacity(0.14), in: Circle())
+                        }
+                        if let u = tiebaImageURL(items[currentIndex].originUrl) {
+                            ShareLink(item: u) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 34, height: 34)
+                                    .background(.white.opacity(0.14), in: Circle())
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+                .transition(.opacity)
             }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.15)) { chromeVisible.toggle() }
         }
         .overlay(alignment: .bottom) {
             if let toastText {
@@ -361,13 +432,48 @@ struct PhotoViewPage: View {
             }
         }
         .onAppear {
-            currentIndex = min(max(0, initialIndex), max(0, urls.count - 1))
+            items = initialItems
+            currentIndex = min(max(0, initialIndex), max(0, initialItems.count - 1))
+        }
+        .task { await loadGallery() }
+    }
+
+    /// picpage 拉全帖图集（Android PhotoViewViewModel.Init 对齐；失败保持本地列表）
+    private func loadGallery() async {
+        guard let ctx = context, let anchor = items.first(where: { $0.id != "" }) ?? items.first
+        else { return }
+        let anchorIndex = items.firstIndex(of: anchor).map { $0 + 1 } ?? 1
+        do {
+            let resp = try await TiebaWriteEndpoints.picPage(
+                forumId: ctx.forumId, forumName: ctx.forumName, threadId: ctx.threadId,
+                picId: anchor.id, picIndex: anchorIndex, objType: ctx.objType,
+                seeLz: ctx.seeLz, prev: false)
+            var server: [PicViewItem] = []
+            var seen = Set<String>()
+            for pic in resp.pic_list ?? [] {
+                let info = pic.img?.original
+                let origin = info?.original_src ?? info?.big_cdn_src ?? ""
+                let show = info?.big_cdn_src ?? origin
+                guard !show.isEmpty, !origin.isEmpty else { continue }
+                let id = info?.id ?? tiebaPicId(from: origin)
+                guard seen.insert(id).inserted else { continue }
+                server.append(PicViewItem(id: id, url: show, originUrl: origin))
+            }
+            if !server.isEmpty {
+                let currentId = items.indices.contains(currentIndex) ? items[currentIndex].id : ""
+                withAnimation { items = server }
+                currentIndex = server.firstIndex(where: { $0.id == currentId })
+                    ?? min(max(0, currentIndex), server.count - 1)
+            }
+        } catch {
+            // 保持 initialItems（Android Init.Failure 降级同款）
         }
     }
 
     private func saveCurrent() {
-        let urlStr = urls[currentIndex]
-        guard let url = tiebaImageURL(urlStr) else {
+        guard items.indices.contains(currentIndex) else { return }
+        let item = items[currentIndex]
+        guard let url = tiebaImageURL(item.originUrl) ?? tiebaImageURL(item.url) else {
             toastText = "图片地址无效"
             return
         }

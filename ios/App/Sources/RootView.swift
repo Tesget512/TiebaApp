@@ -109,7 +109,10 @@ struct RootView: View {
                 externalRoute = ExternalRoute(route: .thread(id: tid, title: "帖子", forumId: 0))
             }
             if let i = args.firstIndex(of: "-openPhoto"), i + 1 < args.count {
-                externalRoute = ExternalRoute(route: .photoView(urls: [args[i + 1]], index: 0))
+                let url = args[i + 1]
+                externalRoute = ExternalRoute(route: .photoView(
+                    items: [PicViewItem(id: tiebaPicId(from: url), url: url, originUrl: url)],
+                    index: 0))
             }
         }
         #endif

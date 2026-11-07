@@ -26,7 +26,7 @@ struct UserProfilePage: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let err = errorText, data == nil {
                 UnavailableView(title: "加载失败", systemImage: "person.crop.circle.badge.exclamationmark",
-                                description: err)
+                                description: err, retry: { Task { await load() } })
             } else if let data {
                 content(data)
             }

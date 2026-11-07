@@ -222,32 +222,27 @@ struct FeedCard: View {
     @ViewBuilder
     private var coverImage: some View {
         let urls = thread.mediaURLs
-        // 夜间模式压暗缩略图（Android night mode 缩略图压暗）
+        // 夜间模式压暗缩略图（Android 同款黑色叠加；此前误用 .brightness(0.72)
+        // ——SwiftUI brightness 正值是加亮，导致缩略图发白）
         let dim = colorScheme == .dark && prefs.imageDarkenWhenNightMode
-        if urls.count > 1 {
-            HStack(spacing: 4) {
-                ForEach(Array(urls.prefix(3).enumerated()), id: \.offset) { _, u in
-                    RemoteImage(url: u)
-                        .frame(width: 84, height: 56)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .brightness(dim ? 0.72 : 1)
-                }
-            }
-        } else if let single = urls.first {
-            RemoteImage(url: single)
-                .frame(width: 108, height: 72)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .brightness(dim ? 0.72 : 1)
+        // 首图封面（用户验收：不要有多少张塞多少张）
+        if let first = urls.first {
+            RemoteImage(url: first, contentMode: .fill)
+                .frame(maxWidth: .infinity)
+                .frame(height: 176)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(Color.black.opacity(dim ? 0.35 : 0))
         } else if let vThumb = thread.videoThumbnailURL {
-            RemoteImage(url: vThumb)
-                .frame(width: 108, height: 72)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            RemoteImage(url: vThumb, contentMode: .fill)
+                .frame(maxWidth: .infinity)
+                .frame(height: 176)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(Color.black.opacity(dim ? 0.35 : 0))
                 .overlay {
                     Image(systemName: "play.circle.fill")
                         .font(.title2)
                         .foregroundStyle(.white)
                 }
-                .brightness(dim ? 0.72 : 1)
         }
     }
 

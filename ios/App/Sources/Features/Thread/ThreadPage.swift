@@ -11,8 +11,8 @@ struct PbContentView: View {
     /// 沉浸阅读：不渲染图片/视频段
     var hideImages: Bool = false
     /// 点击图片回调（对齐 Android PbContentRender：点击进 PhotoViewActivity）
-    /// 参数 = 本段全部图片 URL + 被点图片下标
-    var onImageTap: (([String], Int) -> Void)? = nil
+    /// 参数 = 本段全部图片条目（picId/展示/原图）+ 被点图片下标
+    var onImageTap: (([PicViewItem], Int) -> Void)? = nil
 
     private enum Item {
         case text(String)
@@ -128,10 +128,19 @@ struct PbContentView: View {
         return Self.normalizePicURL(s)
     }
 
-    /// 本段全部图片 URL（点击查看大图用，顺序与渲染一致）
-    var picUrls: [String] {
+    /// 本段全部图片条目（点击查看大图用，顺序与渲染一致）；
+    /// picId 从 url 文件名提取（Android ImageUtil.getPicId 对齐），供 picpage 定位
+    var picViewItems: [PicViewItem] {
         contents.filter { [3, 20].contains(Int($0.type)) }
-            .compactMap { Self.picURL($0)?.absoluteString }
+            .compactMap { c in
+                guard let display = Self.picURL(c) else { return nil }
+                let originRaw = c.originSrc.isEmpty ? c.bigSrc : c.originSrc
+                let origin = Self.normalizePicURL(originRaw)?.absoluteString
+                    ?? display.absoluteString
+                return PicViewItem(id: tiebaPicId(from: display.absoluteString),
+                                   url: display.absoluteString,
+                                   originUrl: origin)
+            }
     }
 
     /// item 下标 → 第几张图（查看器初始定位用）
@@ -156,7 +165,7 @@ struct PbContentView: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
         if let onImageTap, url != nil {
             img.contentShape(Rectangle())
-                .onTapGesture { onImageTap(picUrls, ordinal) }
+                .onTapGesture { onImageTap(picViewItems, ordinal) }
         } else {
             img
         }
@@ -253,7 +262,7 @@ struct ThreadPage: View {
     @State private var toast: String?
     @State private var showReply = false
     @State private var showPhoto = false
-    @State private var photoUrls: [String] = []
+    @State private var photoItems: [PicViewItem] = []
     @State private var photoIndex = 0
     @State private var showReport = false
     @State private var reportURL: URL?
@@ -382,17 +391,16 @@ struct ThreadPage: View {
             }
             .navigationDestination(for: FloorSelection.self) { sel in
                 FloorDetailPage(threadId: threadID, postId: sel.postId,
-                                forumId: resolvedForumId, title: "\(sel.floor)楼的回复")
+                                forumId: resolvedForumId, forumName: forumName,
+                                title: "\(sel.floor)楼的回复")
             }
             .fullScreenCover(isPresented: $showPhoto) {
-                NavigationStack {
-                    PhotoViewPage(urls: photoUrls, initialIndex: photoIndex)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                Button("关闭") { showPhoto = false }
-                            }
-                        }
-                }
+                PhotoViewPage(initialItems: photoItems, initialIndex: photoIndex,
+                              context: PicPageContext(forumId: resolvedForumId,
+                                                      forumName: forumName,
+                                                      threadId: threadID,
+                                                      seeLz: seeLz,
+                                                      objType: "pb"))
             }
             .sheet(isPresented: $showReport) {
                 if let reportURL {
@@ -512,10 +520,10 @@ struct ThreadPage: View {
         }
     }
 
-    private func openPhoto(_ urls: [String], _ index: Int) {
-        // 空列表不打 开查看器（防御：永不出现「无图片」占位页）
-        guard !urls.isEmpty else { return }
-        photoUrls = urls
+    private func openPhoto(_ items: [PicViewItem], _ index: Int) {
+        // 空列表不打开查看器（防御：永不出现「无图片」占位页）
+        guard !items.isEmpty else { return }
+        photoItems = items
         photoIndex = index
         showPhoto = true
     }
@@ -907,6 +915,7 @@ struct FloorDetailPage: View {
     let threadId: Int64
     let postId: Int64
     var forumId: Int64 = 0
+    var forumName: String = ""
     let title: String
 
     @State private var subPosts: [Tieba_SubPostList] = []
@@ -920,7 +929,7 @@ struct FloorDetailPage: View {
     @State private var subReportURL: URL?
     /// 楼中楼图片查看器（对齐 Android 楼中楼看图）
     @State private var showPhoto = false
-    @State private var photoUrls: [String] = []
+    @State private var photoItems: [PicViewItem] = []
     @State private var photoIndex = 0
     @EnvironmentObject private var appState: AppState
 
@@ -950,9 +959,9 @@ struct FloorDetailPage: View {
                                     Text("\(hostPost.floor)楼").font(.caption2).foregroundStyle(.secondary)
                                 }
                                 PbContentView(contents: hostPost.content, fontSize: .footnote,
-                                              onImageTap: { urls, index in
-                                                  guard !urls.isEmpty else { return }
-                                                  photoUrls = urls; photoIndex = index
+                                              onImageTap: { items, index in
+                                                  guard !items.isEmpty else { return }
+                                                  photoItems = items; photoIndex = index
                                                   showPhoto = true
                                               })
                             }
@@ -987,14 +996,12 @@ struct FloorDetailPage: View {
                     }
                 }
                 .fullScreenCover(isPresented: $showPhoto) {
-                    NavigationStack {
-                        PhotoViewPage(urls: photoUrls, initialIndex: photoIndex)
-                            .toolbar {
-                                ToolbarItem(placement: .topBarLeading) {
-                                    Button("关闭") { showPhoto = false }
-                                }
-                            }
-                    }
+                    PhotoViewPage(initialItems: photoItems, initialIndex: photoIndex,
+                                  context: PicPageContext(forumId: forumId,
+                                                          forumName: forumName,
+                                                          threadId: threadId,
+                                                          seeLz: false,
+                                                          objType: "pb"))
                 }
                 .sheet(item: $replyTarget) { target in
                     ReplySheet(threadId: threadId, forumId: forumId,
@@ -1031,9 +1038,9 @@ struct FloorDetailPage: View {
                 Spacer()
             }
             PbContentView(contents: sub.content, fontSize: .footnote,
-                          onImageTap: { urls, index in
-                              guard !urls.isEmpty else { return }
-                              photoUrls = urls; photoIndex = index; showPhoto = true
+                          onImageTap: { items, index in
+                              guard !items.isEmpty else { return }
+                              photoItems = items; photoIndex = index; showPhoto = true
                           })
             HStack(spacing: 12) {
                 // 楼中楼点赞（对齐 Android SubPostItem 点赞可点）

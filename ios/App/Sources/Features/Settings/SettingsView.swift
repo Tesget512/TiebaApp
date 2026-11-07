@@ -86,6 +86,7 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("设置")
+        .bottomBarHidden()
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -525,6 +526,7 @@ struct AboutView: View {
             }
         }
         .navigationTitle("关于")
+        .bottomBarHidden()
         .navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -60,7 +60,7 @@ struct NotificationsView: View {
             .task { if appState.isLoggedIn { await load() } }
             .onChange(of: tab) { _ in Task { await load() } }
             .onAppear { NotifyBadge.shared.count = 0 } // 进入通知页视为已读
-            .safeAreaPadding(.bottom, 70) // tab 根页内容让位悬浮底栏
+            .tabRootScrollBottomInset() // tab 根页：滚过底栏+边缘淡出
         }
     }
 

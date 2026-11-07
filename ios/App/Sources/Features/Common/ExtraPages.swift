@@ -14,6 +14,7 @@ struct WebViewPage: View {
         WebView(url: url, title: $title, reloadToken: reloadToken)
             .ignoresSafeArea(edges: .bottom)
             .navigationTitle(title.isEmpty ? url.host ?? "网页" : title)
+            .bottomBarHidden()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
@@ -147,6 +148,7 @@ struct EditProfilePage: View {
                 }
             }
             .navigationTitle("修改资料")
+            .bottomBarHidden()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

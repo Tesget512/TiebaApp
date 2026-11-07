@@ -241,7 +241,7 @@ struct HomeFeedPage: View {
                     .listStyle(.insetGrouped)
                     .refreshable { await load() }
                     // tab 根页内容让位悬浮底栏（RootView ZStack 覆盖，见 RootView 注释）
-                    .safeAreaPadding(.bottom, 70)
+                    .tabRootScrollBottomInset()
                 }
             }
             .navigationTitle("进吧")
